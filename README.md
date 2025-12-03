@@ -22,7 +22,7 @@ Zap CLI is a Terminal User Interface (TUI) for WhatsApp, built with Node.js. It 
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/zap-cli.git
+   git clone https://github.com/Negin3capa/zap-cli.git
    cd zap-cli
    ```
 
