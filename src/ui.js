@@ -1,85 +1,242 @@
 const blessed = require('blessed');
+const qrcode = require('qrcode-terminal');
+const imageViewer = require('./image-viewer');
+const qrcodeText = require('qrcode');
 
-let screen, contactsList, chatBox, inputBox, chatTitle;
+class TUI {
+    constructor(client) {
+        this.client = client;
+        this.screen = blessed.screen({
+            smartCSR: true,
+            title: 'Zap CLI',
+            fullUnicode: true
+        });
 
-function initScreen(callbacks) {
-    screen = blessed.screen({
-        smartCSR: true,
-        title: 'WhatsApp CLI',
-        mouse: true,
-        fullUnicode: true
-    });
+        this.currentChat = null;
+        this.currentMessages = [];
+        this.chats = [];
+        
+        this.setupLayout();
+        this.setupEvents();
+    }
 
-    // --- PAINEL ESQUERDO (LISTA) ---
-    const listContainer = blessed.box({
-        top: 0, left: 0, width: '30%', height: '100%',
-        label: ' Conversas ',
-        border: { type: 'line', fg: 'blue' }
-    });
+    setupLayout() {
+        // Sidebar for Chats
+        this.chatList = blessed.list({
+            parent: this.screen,
+            top: 0,
+            left: 0,
+            width: '30%',
+            height: '100%',
+            label: ' Chats ',
+            border: { type: 'line' },
+            style: {
+                selected: { bg: 'blue', fg: 'white' },
+                item: { fg: 'white' }
+            },
+            keys: true,
+            mouse: true,
+            vi: true
+        });
 
-    contactsList = blessed.list({
-        parent: listContainer,
-        width: '95%', height: '95%',
-        keys: true, mouse: true, vi: true,
-        style: { selected: { bg: 'blue', fg: 'white' } },
-        scrollbar: { ch: ' ', inverse: true }
-    });
+        // Main Chat Area
+        this.chatBox = blessed.log({
+            parent: this.screen,
+            top: 0,
+            left: '30%',
+            width: '70%',
+            height: '85%',
+            label: ' Messages ',
+            border: { type: 'line' },
+            scrollable: true,
+            mouse: true,
+            tags: true
+        });
 
-    // --- PAINEL DIREITO (CHAT) ---
-    const chatContainer = blessed.box({
-        top: 0, left: '30%', width: '70%', height: '85%',
-        label: ' Chat ',
-        border: { type: 'line', fg: 'white' }
-    });
+        // Input Area
+        this.inputBox = blessed.textarea({
+            parent: this.screen,
+            bottom: 0,
+            left: '30%',
+            width: '70%',
+            height: '15%',
+            label: ' Type a message ',
+            border: { type: 'line' },
+            inputOnFocus: true,
+            keys: true,
+            mouse: true
+        });
+        
+        // Status Bar (overlay)
+        this.statusBar = blessed.box({
+            parent: this.screen,
+            bottom: 0,
+            left: 0,
+            width: '30%',
+            height: 3,
+            content: 'Initializing...',
+            border: { type: 'line' },
+            style: { fg: 'yellow' }
+        });
+    }
 
-    chatTitle = blessed.text({
-        parent: chatContainer, top: 0, left: 'center',
-        content: 'Aguardando seleção...'
-    });
+    setupEvents() {
+        // Quit on C-c
+        this.screen.key(['C-c'], () => process.exit(0));
 
-    chatBox = blessed.box({
-        parent: chatContainer, top: 1, left: 0, width: '100%', height: '100%-2',
-        tags: true, scrollable: true, alwaysScroll: true, mouse: true,
-        scrollbar: { ch: '|', style: { fg: 'blue' } }
-    });
+        // Chat selection
+        this.chatList.on('select', async (item, index) => {
+            const chat = this.chats[index];
+            if (chat) {
+                await this.selectChat(chat);
+            }
+        });
 
-    // --- PAINEL INPUT ---
-    const inputContainer = blessed.box({
-        bottom: 0, left: '30%', width: '70%', height: '15%',
-        label: ' Mensagem ',
-        border: { type: 'line', fg: 'green' }
-    });
+        // Message Input
+        this.inputBox.key('enter', async () => {
+            const text = this.inputBox.getValue().trim();
+            if (text && this.currentChat) {
+                await this.client.sendMessage(this.currentChat.id._serialized, text);
+                this.inputBox.clearValue();
+                this.inputBox.focus(); // Keep focus
+                this.screen.render();
+            }
+        });
+        
+        // Handle Tab to switch focus
+        this.screen.key(['tab'], () => {
+            this.screen.focusNext();
+        });
 
-    inputBox = blessed.textarea({
-        parent: inputContainer, width: '98%', height: '80%',
-        keys: true, inputOnFocus: true,
-        style: { fg: 'white' }
-    });
+        // Handle ChatBox click (Right click to view last image)
+        this.chatBox.on('element mouseup', (data) => {
+            if (data.button === 'right') {
+                if (this.currentMessages) {
+                    // Find the last media message
+                    const lastMedia = [...this.currentMessages].reverse().find(m => m.hasMedia);
+                    if (lastMedia) {
+                        this.viewMedia(lastMedia);
+                    } else {
+                        this.log('No media to view in this chat history.');
+                    }
+                }
+            }
+        });
+    }
 
-    // --- EVENTOS DE UI ---
-    screen.key(['C-c'], () => process.exit(0));
+    log(msg) {
+        this.statusBar.setContent(msg);
+        this.screen.render();
+    }
 
-    contactsList.on('select', (item, index) => {
-        callbacks.onChatSelect(index);
-    });
+    async showQR(qrData) {
+        try {
+            const str = await qrcodeText.toString(qrData, { type: 'terminal', small: true });
+            this.chatBox.setContent(`SCAN QR CODE:\n${str}`);
+            this.screen.render();
+        } catch (e) {
+            this.chatBox.setContent(`QR Code received. Please check logs.`);
+        }
+    }
 
-    inputBox.key('enter', () => {
-        const text = inputBox.getValue().replace(/\n/g, '').trim();
-        inputBox.clearValue();
-        screen.render();
-        if (text) callbacks.onMessageSend(text);
-        inputBox.focus(); // Mantém o foco
-    });
-    
-    inputBox.on('click', () => inputBox.focus());
+    setChats(chats) {
+        this.chats = chats;
+        const items = chats.map(c => c.name || c.id.user);
+        this.chatList.setItems(items);
+        this.screen.render();
+    }
 
-    screen.append(listContainer);
-    screen.append(chatContainer);
-    screen.append(inputContainer);
-    contactsList.focus();
-    screen.render();
+    async selectChat(chat) {
+        this.currentChat = chat;
+        this.currentMessages = [];
+        this.chatBox.setLabel(` ${chat.name} `);
+        this.chatBox.setContent('Loading messages...');
+        this.screen.render();
 
-    return { screen, contactsList, chatBox, inputBox, chatTitle };
+        const messages = await chat.fetchMessages({ limit: 50 });
+        this.chatBox.setContent('');
+        for (const msg of messages) {
+             await this.appendMessage(msg);
+        }
+        this.screen.render();
+        this.inputBox.focus();
+    }
+
+    async appendMessage(msg) {
+        if (!this.currentChat || msg.id.remote !== this.currentChat.id._serialized) {
+             if (msg.fromMe && this.currentChat && msg.to === this.currentChat.id._serialized) {
+                 // proceed
+             } else {
+                 return;
+             }
+        }
+
+        let sender = 'User';
+        if (msg.fromMe) {
+            sender = 'Me';
+        } else {
+            try {
+                const contact = await msg.getContact();
+                sender = contact.pushname || contact.name || contact.number || 'User';
+            } catch (e) {
+                // Fallback if getContact fails (common issue with wwebjs updates)
+                sender = msg._data.notifyName || msg.author || msg.from.split('@')[0];
+            }
+        }
+
+        let content = msg.body;
+
+        if (msg.hasMedia) {
+             content = `[MEDIA: ${msg.type}] (Right-click to view last image)`;
+        }
+
+        const time = new Date(msg.timestamp * 1000).toLocaleTimeString();
+        this.chatBox.add(`{bold}${sender}{/bold} [${time}]: ${content}`);
+        this.currentMessages.push(msg);
+    }
+
+    async viewMedia(msg) {
+        if (!msg.hasMedia) return;
+        
+        this.log('Downloading media...');
+        try {
+            const media = await msg.downloadMedia();
+            if (media) {
+                const buffer = Buffer.from(media.data, 'base64');
+                this.log('Displaying image...');
+                
+                if (imageViewer.isKitty) {
+                   process.stdout.write('\x1b[2J\x1b[H'); // Clear screen
+                   imageViewer.display(buffer);
+                   
+                   this.screen.lockKeys = true;
+                   
+                   const restore = () => {
+                       process.stdin.setRawMode(true);
+                       process.stdin.resume();
+                       this.screen.alloc();
+                       this.screen.render();
+                       this.screen.lockKeys = false;
+                       process.stdin.removeListener('data', onKey);
+                   };
+
+                   const onKey = (key) => {
+                       restore();
+                   };
+                   
+                   process.stdin.once('data', onKey);
+                } else {
+                    this.log('Terminal not supported for inline images. Saved to disk.');
+                    const fs = require('fs');
+                    const filename = `media_${msg.timestamp}.${media.mimetype.split('/')[1]}`;
+                    fs.writeFileSync(filename, buffer);
+                    this.log(`Saved to ${filename}`);
+                }
+            }
+        } catch (e) {
+            this.log('Error downloading media: ' + e.message);
+        }
+    }
 }
 
-module.exports = { initScreen };
+module.exports = TUI;

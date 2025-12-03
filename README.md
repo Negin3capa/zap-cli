@@ -1,64 +1,89 @@
-# ZAP-CLI (Terminal User Interface)
+# Zap CLI - WhatsApp TUI
 
-Cliente WhatsApp minimalista e otimizado para rodar diretamente no terminal. Desenvolvido em Node.js, utilizando `whatsapp-web.js` para conexão e `blessed` para a interface gráfica.
+Zap CLI is a Terminal User Interface (TUI) for WhatsApp, built with Node.js. It features a mouse-interactive interface, real-time messaging, and inline image viewing support for Kitty terminals.
 
-## 🚀 Funcionalidades
+## Features
 
-- **Interface Gráfica no Terminal (TUI):** Navegação por mouse e teclado.
-- **Leve e Rápido:** Carregamento otimizado de contatos e mensagens (Lazy Loading).
-- **Tempo Real:** Recebimento e envio de mensagens com atualização instantânea.
-- **Suporte a Grupos:** Identificação colorida de participantes em grupos.
-- **Modo Seguro:** Tratamento de erros para atualizações recentes do WhatsApp Web (evita crash em `getIsMyContact`).
+- **TUI Interface**: Interactive terminal interface with mouse support using `blessed`.
+- **Message History**: View and scroll through chat history.
+- **Send/Receive**: Real-time messaging.
+- **Image Viewing**: 
+    - **Kitty Terminal**: Inline high-quality image viewing using Kitty's graphics protocol.
+    - **Other Terminals**: Images are downloaded and saved to disk.
+- **Contacts**: Browse and search (basic list) contacts/chats.
 
-## 🛠️ Instalação
+## Prerequisites
 
-1. **Pré-requisitos:** Node.js instalado (v14 ou superior).
-2. **Clone/Baixe o projeto.**
-3. **Instale as dependências:**
+- **Node.js**: Version 14 or higher.
+- **Google Chrome / Chromium**: Required for `puppeteer` (installed automatically in most cases, but system libraries might be needed).
+- **Kitty Terminal** (Optional): For inline image viewing.
 
-```bash
-npm install whatsapp-web.js qrcode-terminal blessed chalk
+## Installation
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/yourusername/zap-cli.git
+   cd zap-cli
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+## Configuration
+
+Edit `config.json` to customize settings:
+
+```json
+{
+  "sessionPath": "./.wwebjs_auth",  // Path to store session (do not delete to keep login)
+  "downloadMedia": true,            // Auto-download media (not yet fully implemented auto-download, currently on-demand)
+  "downloadPath": "./media",        // Path to save media
+  "notifications": true
+}
 ```
 
-## 💻 Como Usar
+## Usage
 
-Para iniciar a aplicação:
+Start the application:
+
+```bash
+npm start
+```
+
+or
 
 ```bash
 node index.js
 ```
 
-1. Na primeira execução, um **QR Code** será exibido no terminal.
-2. Abra seu WhatsApp no celular > Aparelhos Conectados > Conectar Aparelho.
-3. Escaneie o código.
-4. Aguarde a interface carregar.
+### First Time Login
+1. On first run, a QR Code will be displayed in the terminal.
+2. Open WhatsApp on your phone.
+3. Go to **Linked Devices** -> **Link a Device**.
+4. Scan the QR code.
 
-### Comandos da Interface
+### Controls
+- **Mouse**: Click on chats to select them. Click on input box to type.
+- **Arrow Keys**: Navigate lists.
+- **Enter**: Send message.
+- **Tab**: Switch focus between Chat List, Messages, and Input.
+- **Ctrl+C**: Quit.
+- **Right Click** (on Message Log): View the last received image in the chat (if using Kitty).
 
-| Ação | Teclado | Mouse |
-|Data | --- | --- |
-| **Navegar na Lista** | Setas `↑` `↓` | Rolar Scroll / Clicar |
-| **Selecionar Chat** | `Enter` | Clique Esquerdo |
-| **Enviar Mensagem** | `Enter` (no input) | Botão "Enviar" (se houver) |
-| **Sair** | `Ctrl + C` | - |
+## Image Viewing
+If you are using the **Kitty** terminal:
+- When an image is received, right-click anywhere in the message log area to view the last media image.
+- The image will clear the screen and display. Press any key to return to the chat.
 
-## 📂 Estrutura do Projeto
+If you are NOT using Kitty:
+- Images will be saved to the current directory (or configured path) when you try to view them.
 
-O projeto foi modularizado para facilitar manutenção:
+## Troubleshooting
 
-- **`index.js`**: Controlador principal. Gerencia o fluxo entre o Cliente WhatsApp e a Interface.
-- **`src/config.js`**: Configurações do Puppeteer e constantes.
-- **`src/client.js`**: Lógica de inicialização do bot (separada se necessário).
-- **`src/ui.js`**: Construção da interface visual (Blessed). Define caixas, listas e inputs.
-- **`src/utils.js`**: Funções auxiliares, como formatação de data, cores de mensagens e cache de nomes de contatos.
+- **Puppeteer Error**: If you see errors related to Chrome/Chromium launch, ensure you have necessary system libraries installed. On Linux, you might need libraries like `libnss3`, `libatk1.0-0`, etc.
+- **QR Code formatting**: If the QR code looks broken, try resizing your terminal or ensuring a monospaced font is used.
 
-## ⚠️ Solução de Problemas Comuns
-
-**Erro: `TypeError: window.Store.ContactMethods.getIsMyContact is not a function`**
-Este erro ocorre devido a atualizações do WhatsApp Web. Este cliente possui um tratamento `try/catch` no arquivo `src/utils.js` para contornar isso automaticamente, exibindo o número do contato caso o nome falhe ao carregar.
-
-**Sessão desconectando:**
-O arquivo de sessão é salvo na pasta `.wwebjs_auth`. Se tiver problemas de login, apague esta pasta e escaneie o QR Code novamente.
-
----
-*Desenvolvido para fins educacionais. Use com responsabilidade.*
+## License
+MIT
