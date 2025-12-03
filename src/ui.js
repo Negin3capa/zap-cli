@@ -3,13 +3,25 @@ const qrcode = require('qrcode-terminal');
 const imageViewer = require('./image-viewer');
 const qrcodeText = require('qrcode');
 
+const THEME = {
+    primary: 'white',
+    secondary: 'green',
+    highlight: 'yellow',
+    text: 'white',
+    timestamp: '#aaaaaa',
+    me: 'white',
+    other: 'green',
+    system: 'blue'
+};
+
 class TUI {
     constructor(client) {
         this.client = client;
         this.screen = blessed.screen({
             smartCSR: true,
             title: 'Zap CLI',
-            fullUnicode: true
+            fullUnicode: true,
+            dockBorders: true
         });
 
         this.currentChat = null;
@@ -27,16 +39,39 @@ class TUI {
             top: 0,
             left: 0,
             width: '30%',
-            height: '100%',
-            label: ' Chats ',
-            border: { type: 'line' },
+            height: '100%-3',
+            label: ' {bold}Chats{/bold} ',
+            tags: true,
+            border: { type: 'line', fg: THEME.secondary },
             style: {
-                selected: { bg: 'blue', fg: 'white' },
-                item: { fg: 'white' }
+                selected: { bg: THEME.secondary, fg: 'black', bold: true },
+                item: { fg: THEME.timestamp },
+                border: { fg: THEME.secondary },
+                label: { fg: THEME.secondary }
             },
             keys: true,
             mouse: true,
-            vi: true
+            vi: true,
+            scrollbar: {
+                style: { bg: THEME.secondary },
+                track: { bg: 'black' }
+            }
+        });
+
+        // Status Bar (Bottom Left)
+        this.statusBar = blessed.box({
+            parent: this.screen,
+            bottom: 0,
+            left: 0,
+            width: '30%',
+            height: 3,
+            content: '{bold}Initializing...{/bold}',
+            tags: true,
+            border: { type: 'line', fg: THEME.system },
+            style: {
+                fg: 'white',
+                border: { fg: THEME.system }
+            }
         });
 
         // Main Chat Area
@@ -46,11 +81,19 @@ class TUI {
             left: '30%',
             width: '70%',
             height: '85%',
-            label: ' Messages ',
-            border: { type: 'line' },
+            label: ' {bold}Messages{/bold} ',
+            tags: true,
+            border: { type: 'line', fg: 'white' },
+            style: {
+                border: { fg: 'white' },
+                label: { fg: 'white' }
+            },
             scrollable: true,
             mouse: true,
-            tags: true
+            scrollbar: {
+                style: { bg: 'white' },
+                track: { bg: 'black' }
+            }
         });
 
         // Input Area
@@ -60,29 +103,30 @@ class TUI {
             left: '30%',
             width: '70%',
             height: '15%',
-            label: ' Type a message ',
-            border: { type: 'line' },
+            label: ' {bold}Type a message{/bold} ',
+            tags: true,
+            border: { type: 'line', fg: THEME.highlight },
+            style: {
+                border: { fg: THEME.highlight },
+                label: { fg: THEME.highlight },
+                focus: { border: { fg: 'white' } }
+            },
             inputOnFocus: true,
             keys: true,
             mouse: true
-        });
-        
-        // Status Bar (overlay)
-        this.statusBar = blessed.box({
-            parent: this.screen,
-            bottom: 0,
-            left: 0,
-            width: '30%',
-            height: 3,
-            content: 'Initializing...',
-            border: { type: 'line' },
-            style: { fg: 'yellow' }
         });
     }
 
     setupEvents() {
         // Quit on C-c
-        this.screen.key(['C-c'], () => process.exit(0));
+        const exitApp = () => {
+            this.screen.destroy();
+            process.exit(0);
+        };
+
+        this.screen.key(['C-c'], exitApp);
+        this.inputBox.key(['C-c'], exitApp);
+        this.chatList.key(['C-c'], exitApp);
 
         // Chat selection
         this.chatList.on('select', async (item, index) => {
@@ -125,7 +169,7 @@ class TUI {
     }
 
     log(msg) {
-        this.statusBar.setContent(msg);
+        this.statusBar.setContent(`{bold}${msg}{/bold}`);
         this.screen.render();
     }
 
@@ -149,8 +193,17 @@ class TUI {
     async selectChat(chat) {
         this.currentChat = chat;
         this.currentMessages = [];
-        this.chatBox.setLabel(` ${chat.name} `);
-        this.chatBox.setContent('Loading messages...');
+        
+        let chatName = chat.name;
+        try {
+            const contact = await chat.getContact();
+            chatName = contact.name || contact.pushname || chat.name || contact.number;
+        } catch(e) {
+            // keep chat.name
+        }
+
+        this.chatBox.setLabel(` {bold}${chatName}{/bold} `);
+        this.chatBox.setContent('{center}Loading messages...{/center}');
         this.screen.render();
 
         const messages = await chat.fetchMessages({ limit: 50 });
@@ -172,8 +225,11 @@ class TUI {
         }
 
         let sender = 'User';
+        let senderColor = THEME.other;
+
         if (msg.fromMe) {
             sender = 'Me';
+            senderColor = THEME.me;
         } else {
             try {
                 const contact = await msg.getContact();
@@ -187,11 +243,12 @@ class TUI {
         let content = msg.body;
 
         if (msg.hasMedia) {
-             content = `[MEDIA: ${msg.type}] (Right-click to view last image)`;
+             content = `{${THEME.highlight}-fg}[MEDIA: ${msg.type}] (Right-click to view){/}`;
         }
 
-        const time = new Date(msg.timestamp * 1000).toLocaleTimeString();
-        this.chatBox.add(`{bold}${sender}{/bold} [${time}]: ${content}`);
+        let time = new Date(msg.timestamp * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
+        time = time.replace(/\s+/g, '');
+        this.chatBox.add(`{${THEME.timestamp}-fg}${time}{/} {bold}{${senderColor}-fg}${sender}{/}: ${content}`);
         this.currentMessages.push(msg);
     }
 
