@@ -46,7 +46,7 @@ class WhatsAppClient extends EventEmitter {
     }
 
     initialize() {
-        this.client.initialize();
+        return this.client.initialize();
     }
 
     async getChats() {
