@@ -45,5 +45,32 @@ client.on('message', (msg) => {
 });
 
 // Start
-ui.log('Initializing WhatsApp Client...');
-client.initialize();
+ui.log('Initializing WhatsApp');
+
+let dotCount = 0;
+const loadingInterval = setInterval(() => {
+    dotCount++;
+    const dots = '.'.repeat(dotCount);
+    ui.log('Initializing WhatsApp' + dots);
+}, 9000);
+
+const initTimeout = setTimeout(() => {
+    ui.log('{yellow-fg}Initialization is taking longer than expected...{/}');
+    ui.log('If stuck, stop the app and try deleting the .wwebjs_auth folder.');
+}, 30000);
+
+const cleanupInit = () => {
+    clearInterval(loadingInterval);
+    clearTimeout(initTimeout);
+};
+
+client.on('ready', () => cleanupInit());
+client.on('qr', () => cleanupInit());
+
+client.initialize().catch(err => {
+    cleanupInit();
+    ui.log('{red-fg}Error initializing client: ' + err.message + '{/}');
+    if (err.message.includes('session')) {
+        ui.log('Try deleting the .wwebjs_auth folder and restarting.');
+    }
+});
