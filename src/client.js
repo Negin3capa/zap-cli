@@ -7,7 +7,7 @@ class WhatsAppClient extends EventEmitter {
         super();
         this.config = config;
         this.client = new Client({
-            authStrategy: new LocalAuth({ dataPath: config.sessionPath }),
+            authStrategy: new LocalAuth(),
             puppeteer: {
                 headless: true,
                 args: ['--no-sandbox', '--disable-setuid-sandbox']
