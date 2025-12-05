@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# ZapTUI Linux Installer
+# Supports multiple Linux distributions
+
 # Colors for output
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
@@ -8,8 +11,24 @@ RED='\033[0;31m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${BLUE}🚀 ZapTUI Installation Wrapper${NC}"
+echo -e "${BLUE}🚀 ZapTUI Linux Installer${NC}"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# Detect Linux distribution
+detect_distro() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        echo "$ID"
+    elif [ -f /etc/lsb-release ]; then
+        . /etc/lsb-release
+        echo "$DISTRIB_ID" | tr '[:upper:]' '[:lower:]'
+    else
+        echo "unknown"
+    fi
+}
+
+DISTRO=$(detect_distro)
+echo -e "${BLUE}📊 Detected distribution: $DISTRO${NC}"
 
 # Function to check command existence
 check_cmd() {
@@ -22,6 +41,48 @@ check_cmd() {
     fi
 }
 
+# Provide distro-specific installation instructions
+provide_install_instructions() {
+    echo -e "\n${YELLOW}To install missing dependencies on your system:${NC}\n"
+
+    case "$DISTRO" in
+        ubuntu|debian|linuxmint|pop)
+            echo -e "${BLUE}Ubuntu/Debian-based systems:${NC}"
+            echo "  sudo apt update"
+            echo "  sudo apt install curl build-essential"
+            echo "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+            echo "  curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -"
+            echo "  sudo apt install nodejs"
+            ;;
+        fedora|rhel|centos)
+            echo -e "${BLUE}Fedora/RHEL-based systems:${NC}"
+            echo "  sudo dnf groupinstall 'Development Tools'"
+            echo "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+            echo "  sudo dnf install nodejs npm"
+            ;;
+        arch|manjaro)
+            echo -e "${BLUE}Arch-based systems:${NC}"
+            echo "  sudo pacman -S base-devel rust nodejs npm"
+            ;;
+        opensuse*|suse)
+            echo -e "${BLUE}openSUSE systems:${NC}"
+            echo "  sudo zypper install -t pattern devel_basis"
+            echo "  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+            echo "  sudo zypper install nodejs npm"
+            ;;
+        gentoo)
+            echo -e "${BLUE}Gentoo systems:${NC}"
+            echo "  sudo emerge --ask dev-lang/rust net-libs/nodejs"
+            ;;
+        *)
+            echo -e "${BLUE}Generic Linux:${NC}"
+            echo "  Rust: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+            echo "  Node.js: https://nodejs.org/ or use your package manager"
+            ;;
+    esac
+    echo ""
+}
+
 # 1. Check Dependencies
 echo -e "\n${BLUE}📦 Checking dependencies...${NC}"
 MISSING_DEPS=0
@@ -31,9 +92,8 @@ check_cmd "node" || MISSING_DEPS=1
 check_cmd "npm" || MISSING_DEPS=1
 
 if [ $MISSING_DEPS -eq 1 ]; then
-    echo -e "\n${RED}Please install missing dependencies and try again.${NC}"
-    echo "Rust: https://rustup.rs/"
-    echo "Node.js: https://nodejs.org/"
+    provide_install_instructions
+    echo -e "${RED}Please install missing dependencies and try again.${NC}"
     exit 1
 fi
 

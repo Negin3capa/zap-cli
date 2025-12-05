@@ -1,0 +1,122 @@
+#!/bin/bash
+set -e
+
+# ZapTUI macOS Launcher
+# Manages the WhatsApp service and launches the TUI
+
+# Determine if running from installation or source
+if [ -d "$HOME/Library/Application Support/zaptui" ]; then
+    # Running from global installation
+    INSTALL_DIR="$HOME/Library/Application Support/zaptui"
+    SERVICE_DIR="$INSTALL_DIR/whatsapp-service"
+    AUTH_DIR="$INSTALL_DIR/.wwebjs_auth"
+    BINARY="$INSTALL_DIR/zaptui"
+elif [ -f "./target/release/zaptui" ]; then
+    # Running from source directory
+    SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+    cd "$SCRIPT_DIR"
+    INSTALL_DIR="."
+    SERVICE_DIR="./whatsapp-service"
+    AUTH_DIR="./.wwebjs_auth"
+    BINARY="./target/release/zaptui"
+else
+    echo "❌ ZapTUI not found. Run install-macos.sh first."
+    exit 1
+fi
+
+# Handle info flags directly without starting service
+if [[ "$1" == "--version" ]] || [[ "$1" == "--help" ]] || [[ "$1" == "-h" ]] || [[ "$1" == "-V" ]]; then
+    if [ -f "$BINARY" ]; then
+        exec "$BINARY" "$@"
+    else
+        echo "❌ ZapTUI binary not found."
+        exit 1
+    fi
+fi
+
+# Check if binary exists
+if [ ! -f "$BINARY" ]; then
+    echo "❌ ZapTUI binary not found at $BINARY"
+    echo "Run 'install-macos.sh' to install."
+    exit 1
+fi
+
+echo "🚀 ZapTUI - Starting..."
+echo ""
+
+# Check Node.js
+if ! command -v node &> /dev/null; then
+    echo "❌ Error: Node.js is not installed"
+    echo "Install via Homebrew: brew install node"
+    exit 1
+fi
+
+# Check if service dependencies are installed
+if [ ! -d "$SERVICE_DIR/node_modules" ]; then
+    echo "📦 WhatsApp service dependencies missing. Installing..."
+    cd "$SERVICE_DIR"
+    npm install --silent
+    cd - > /dev/null
+fi
+
+# Check if service is already running
+SERVICE_ALREADY_RUNNING=false
+if lsof -Pi :8080 -sTCP:LISTEN -t > /dev/null 2>&1 ; then
+    echo "✅ WhatsApp service already running (shared)"
+    SERVICE_ALREADY_RUNNING=true
+fi
+
+# Cleanup function (only cleanup service if we started it)
+cleanup() {
+    echo ""
+    if [ "$SERVICE_ALREADY_RUNNING" = false ]; then
+        echo "🛑 Stopping WhatsApp service..."
+        if [ ! -z "$WA_PID" ]; then
+            kill $WA_PID 2>/dev/null || true
+        fi
+        pkill -f "node.*server.js" 2>/dev/null || true
+        sleep 0.5
+        if lsof -Pi :8080 -sTCP:LISTEN -t > /dev/null 2>&1; then
+            lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+        fi
+    else
+        echo "ℹ️  Leaving shared service running for other instances"
+    fi
+    echo "✅ Goodbye!"
+    exit 0
+}
+
+trap cleanup SIGINT SIGTERM EXIT
+
+# Start WhatsApp Service if not already running
+if [ "$SERVICE_ALREADY_RUNNING" = false ]; then
+    echo "🔌 Starting WhatsApp service..."
+    
+    # Set auth path via environment variable
+    export ZAPTUI_AUTH_PATH="$AUTH_DIR"
+    
+    cd "$SERVICE_DIR"
+    node server.js > /dev/null 2>&1 &
+    WA_PID=$!
+    cd - > /dev/null
+    
+    # Wait for service to start
+    sleep 2
+    if ! kill -0 $WA_PID 2>/dev/null; then
+        echo "❌ Failed to start WhatsApp service"
+        exit 1
+    fi
+    
+    echo "✅ Connected. launching TUI..."
+else
+    echo "🚀 Launching TUI..."
+fi
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Run TUI (don't use exec so cleanup trap can run)
+"$BINARY" "$@"
+
+# Exit with same code as binary
+exit $?

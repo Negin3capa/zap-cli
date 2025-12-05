@@ -18,13 +18,23 @@
 
 ## 🚀 Quick Start
 
+### Supported Platforms
+
+- **Linux** (Ubuntu, Debian, Fedora, Arch, openSUSE, and more)
+- **macOS** (10.15+)
+- **Windows** (10/11)
+
 ### Prerequisites
 
-- **Rust** (1.70+)
-- **Node.js** (18+)
-- **npm**
+All platforms require:
+
+- **Rust** (1.70+) - [Install from rustup.rs](https://rustup.rs/)
+- **Node.js** (18+) - [Install from nodejs.org](https://nodejs.org/)
+- **npm** (comes with Node.js)
 
 ### Installation
+
+#### Linux
 
 ```bash
 # 1. Clone the repository
@@ -32,28 +42,67 @@ git clone https://github.com/Negin3capa/zaptui.git
 cd zaptui
 
 # 2. Run the installer
+chmod +x install.sh
 ./install.sh
 ```
 
 The installer will:
 
-1. Check dependencies
-2. Build the Rust binary
-3. Install Node.js backend dependencies
-4. Offer to add `zaptui` to your PATH
+1. Detect your Linux distribution
+2. Provide distro-specific dependency installation commands if needed
+3. Build the Rust binary
+4. Install Node.js backend dependencies
+5. Offer to add `zaptui` to your PATH
+
+**Supported distros:** Ubuntu, Debian, Fedora, RHEL, CentOS, Arch, Manjaro, openSUSE, Gentoo, and more.
+
+#### macOS
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/Negin3capa/zaptui.git
+cd zaptui
+
+# 2. Run the macOS installer
+chmod +x install-macos.sh
+./install-macos.sh
+```
+
+The installer follows macOS conventions and installs to `~/Library/Application Support/zaptui`.
+
+#### Windows
+
+```powershell
+# 1. Clone the repository
+git clone https://github.com/Negin3capa/zaptui.git
+cd zaptui
+
+# 2. Run the PowerShell installer
+.\install.ps1
+```
+
+**Note:** You may need to allow script execution:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+The installer will place files in `%LOCALAPPDATA%\zaptui` and optionally add to PATH.
 
 ### Usage
 
-If you added it to your PATH:
+After installation, run from anywhere:
 
 ```bash
-zaptui
+zaptui        # On all platforms (if added to PATH)
 ```
 
-Otherwise:
+Or from the project directory:
 
 ```bash
-./zaptui
+./zaptui              # Linux
+./scripts/zaptui-macos    # macOS
+.\scripts\zaptui.bat      # Windows
 ```
 
 **First Run:**
@@ -86,23 +135,77 @@ service_url = "ws://localhost:8080"
 
 ## 🛠️ Troubleshooting
 
+### Linux & macOS
+
 **"Port 8080 is already in use"**
+
 Running `zaptui` again after a crash might show this. Run:
 
 ```bash
+# Linux
 sudo lsof -ti:8080 | xargs kill -9
+
+# macOS
+lsof -ti:8080 | xargs kill -9
 ```
 
 **"Binary not found"**
-Run `./install.sh` to rebuild.
 
-**Uninstall**
-Run `make uninstall` (if you used Make) or:
+Run the installer again:
 
 ```bash
-rm -rf ~/.config/zaptui
-rm ~/.cargo/bin/zaptui
+./install.sh         # Linux
+./install-macos.sh   # macOS
 ```
+
+### Windows
+
+**"Port 8080 is already in use"**
+
+In PowerShell as Administrator:
+
+```powershell
+Get-NetTCPConnection -LocalPort 8080 | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+```
+
+**"Running scripts is disabled"**
+
+Enable PowerShell script execution:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+**"Binary not found"**
+
+Run the installer again:
+
+```powershell
+.\install.ps1
+```
+
+### All Platforms
+
+**Uninstall**
+
+```bash
+# Linux
+./scripts/uninstall.sh
+
+# macOS
+./scripts/uninstall-macos.sh
+```
+
+```powershell
+# Windows
+.\scripts\uninstall.ps1
+```
+
+Or manually:
+
+- Linux: `rm -rf ~/.local/share/zaptui ~/.config/zaptui ~/.cargo/bin/zaptui`
+- macOS: `rm -rf ~/Library/Application\ Support/zaptui ~/.config/zaptui /usr/local/bin/zaptui`
+- Windows: Remove `%LOCALAPPDATA%\zaptui` and `%APPDATA%\zaptui`
 
 ## 🏗️ Architecture
 
