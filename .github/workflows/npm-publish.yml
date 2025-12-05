@@ -15,8 +15,12 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: "npm"
+          cache-dependency-path: "whatsapp-service/package-lock.json"
       - run: npm ci
+        working-directory: ./whatsapp-service
       - run: npm test
+        working-directory: ./whatsapp-service
 
   publish-npm:
     needs: build
@@ -27,7 +31,11 @@ jobs:
         with:
           node-version: 20
           registry-url: https://registry.npmjs.org/
+          cache: "npm"
+          cache-dependency-path: "whatsapp-service/package-lock.json"
       - run: npm ci
+        working-directory: ./whatsapp-service
       - run: npm publish
+        working-directory: ./whatsapp-service
         env:
           NODE_AUTH_TOKEN: ${{secrets.npm_token}}
