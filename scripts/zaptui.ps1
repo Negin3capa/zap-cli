@@ -21,36 +21,36 @@ if ($PassThruArgs -contains "--version" -or $PassThruArgs -contains "--help" -or
         & $binary $PassThruArgs
         exit $LASTEXITCODE
     } else {
-        Write-Host "❌ ZapTUI not properly installed. Run 'install.ps1' from the project directory." -ForegroundColor Red
+        Write-Host "[ERROR] ZapTUI not properly installed. Run 'install.ps1' from the project directory." -ForegroundColor Red
         exit 1
     }
 }
 
 # Check if installation exists
 if (-not (Test-Path $installDir)) {
-    Write-Host "❌ ZapTUI not properly installed." -ForegroundColor Red
+    Write-Host "[ERROR] ZapTUI not properly installed." -ForegroundColor Red
     Write-Host "Run 'install.ps1' from the project directory to install." -ForegroundColor Yellow
     exit 1
 }
 
 if (-not (Test-Path $binary)) {
-    Write-Host "❌ ZapTUI binary not found at $binary" -ForegroundColor Red
+    Write-Host "[ERROR] ZapTUI binary not found at $binary" -ForegroundColor Red
     Write-Host "Run 'install.ps1' from the project directory to reinstall." -ForegroundColor Yellow
     exit 1
 }
 
-Write-Host "🚀 ZapTUI - Starting..." -ForegroundColor Cyan
+Write-Host "[START] ZapTUI - Starting..." -ForegroundColor Cyan
 Write-Host ""
 
 # Check Node.js
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
-    Write-Host "❌ Error: Node.js is not installed" -ForegroundColor Red
+    Write-Host "[ERROR] Error: Node.js is not installed" -ForegroundColor Red
     exit 1
 }
 
 # Check if service dependencies are installed
 if (-not (Test-Path "$serviceDir\node_modules")) {
-    Write-Host "📦 WhatsApp service dependencies missing. Installing..." -ForegroundColor Yellow
+    Write-Host "[SETUP] WhatsApp service dependencies missing. Installing..." -ForegroundColor Yellow
     Push-Location $serviceDir
     npm install --silent
     Pop-Location
@@ -60,7 +60,7 @@ if (-not (Test-Path "$serviceDir\node_modules")) {
 $serviceAlreadyRunning = $false
 $connection = Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue
 if ($connection) {
-    Write-Host "✅ WhatsApp service already running (shared)" -ForegroundColor Green
+    Write-Host "[OK] WhatsApp service already running (shared)" -ForegroundColor Green
     $serviceAlreadyRunning = $true
 }
 
@@ -68,7 +68,7 @@ if ($connection) {
 function Stop-Service {
     Write-Host ""
     if (-not $serviceAlreadyRunning) {
-        Write-Host "🛑 Stopping WhatsApp service..." -ForegroundColor Yellow
+        Write-Host "[STOP] Stopping WhatsApp service..." -ForegroundColor Yellow
         
         # Kill Node.js processes running server.js
         Get-Process -Name node -ErrorAction SilentlyContinue | Where-Object {
@@ -79,13 +79,13 @@ function Stop-Service {
         Start-Sleep -Milliseconds 500
         $conn = Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue
         if ($conn) {
-            $pid = $conn.OwningProcess
-            Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+            $processPid = $conn.OwningProcess
+            Stop-Process -Id $processPid -Force -ErrorAction SilentlyContinue
         }
     } else {
-        Write-Host "ℹ️  Leaving shared service running for other instances" -ForegroundColor Cyan
+        Write-Host "[INFO] Leaving shared service running for other instances" -ForegroundColor Cyan
     }
-    Write-Host "✅ Goodbye!" -ForegroundColor Green
+    Write-Host "[OK] Goodbye!" -ForegroundColor Green
 }
 
 # Register cleanup on exit
@@ -93,7 +93,7 @@ Register-EngineEvent PowerShell.Exiting -Action { Stop-Service } | Out-Null
 
 # Start WhatsApp Service if not already running
 if (-not $serviceAlreadyRunning) {
-    Write-Host "🔌 Starting WhatsApp service..." -ForegroundColor Cyan
+    Write-Host "[CONNECT] Starting WhatsApp service..." -ForegroundColor Cyan
     
     # Set auth path via environment variable
     $env:ZAPTUI_AUTH_PATH = $authDir
@@ -107,17 +107,17 @@ if (-not $serviceAlreadyRunning) {
     Start-Sleep -Seconds 2
     
     if ($serviceProcess.HasExited) {
-        Write-Host "❌ Failed to start WhatsApp service" -ForegroundColor Red
+        Write-Host "[ERROR] Failed to start WhatsApp service" -ForegroundColor Red
         Write-Host "Check logs at: $env:TEMP\zaptui-service-error.log" -ForegroundColor Yellow
         exit 1
     }
     
-    Write-Host "✅ Connected. launching TUI..." -ForegroundColor Green
+    Write-Host "[OK] Connected. launching TUI..." -ForegroundColor Green
 } else {
-    Write-Host "🚀 Launching TUI..." -ForegroundColor Cyan
+    Write-Host "[START] Launching TUI..." -ForegroundColor Cyan
 }
 
-Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Blue
+Write-Host "================================================" -ForegroundColor Blue
 Write-Host ""
 
 # Run TUI
@@ -125,7 +125,7 @@ try {
     & $binary $PassThruArgs
     $exitCode = $LASTEXITCODE
 } catch {
-    Write-Host "❌ Error running ZapTUI: $_" -ForegroundColor Red
+    Write-Host "[ERROR] Error running ZapTUI: $_" -ForegroundColor Red
     $exitCode = 1
 } finally {
     Stop-Service

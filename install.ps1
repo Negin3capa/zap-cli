@@ -23,13 +23,13 @@ Requirements:
 }
 
 # Colors for output
-function Write-Success { Write-Host "✅ $args" -ForegroundColor Green }
-function Write-Error-Custom { Write-Host "❌ $args" -ForegroundColor Red }
-function Write-Info { Write-Host "ℹ️  $args" -ForegroundColor Cyan }
-function Write-Warning-Custom { Write-Host "⚠️  $args" -ForegroundColor Yellow }
+function Write-Success { Write-Host "[OK] $args" -ForegroundColor Green }
+function Write-Error-Custom { Write-Host "[ERROR] $args" -ForegroundColor Red }
+function Write-Info { Write-Host "[INFO] $args" -ForegroundColor Cyan }
+function Write-Warning-Custom { Write-Host "[WARNING] $args" -ForegroundColor Yellow }
 
-Write-Host "🚀 ZapTUI Windows Installer" -ForegroundColor Blue
-Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Blue
+Write-Host "=== ZapTUI Windows Installer ===" -ForegroundColor Blue
+Write-Host "================================================" -ForegroundColor Blue
 
 # Check if running as Administrator (not required, but warn if not)
 $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -38,7 +38,7 @@ if (-not $isAdmin) {
 }
 
 # 1. Check Dependencies
-Write-Host "`n📦 Checking dependencies..." -ForegroundColor Blue
+Write-Host "`n[STEP 1] Checking dependencies..." -ForegroundColor Blue
 $missingDeps = $false
 
 # Check Cargo
@@ -73,7 +73,7 @@ if ($missingDeps) {
 }
 
 # 2. Build Rust Binary
-Write-Host "`n🦀 Building Rust binary..." -ForegroundColor Blue
+Write-Host "`n[STEP 2] Building Rust binary..." -ForegroundColor Blue
 try {
     cargo build --release
     if ($LASTEXITCODE -ne 0) { throw "Build failed" }
@@ -84,7 +84,7 @@ try {
 }
 
 # 3. Install Node Dependencies
-Write-Host "`n🟢 Installing WhatsApp service dependencies..." -ForegroundColor Blue
+Write-Host "`n[STEP 3] Installing WhatsApp service dependencies..." -ForegroundColor Blue
 try {
     Push-Location whatsapp-service
     npm install --silent
@@ -98,7 +98,7 @@ try {
 }
 
 # 4. Installation Verification
-Write-Host "`n🧪 Verifying build..." -ForegroundColor Blue
+Write-Host "`n[STEP 4] Verifying build..." -ForegroundColor Blue
 if (Test-Path ".\target\release\zaptui.exe") {
     Write-Success "Binary created at target\release\zaptui.exe"
 } else {
@@ -107,7 +107,7 @@ if (Test-Path ".\target\release\zaptui.exe") {
 }
 
 # 5. Installation Options
-Write-Host "`n🔗 Installation Options" -ForegroundColor Blue
+Write-Host "`n[STEP 5] Installation Options" -ForegroundColor Blue
 Write-Host "1) Local Install - Run from current directory"
 Write-Host "2) User Install (Recommended) - Install to user profile"
 Write-Host ""
@@ -120,7 +120,7 @@ if ($Global) {
 
 switch ($choice) {
     2 {
-        Write-Host "`n📦 Installing to user profile..." -ForegroundColor Blue
+        Write-Host "`nInstalling to user profile..." -ForegroundColor Blue
         
         $installDir = "$env:LOCALAPPDATA\zaptui"
         $binDir = "$env:LOCALAPPDATA\zaptui\bin"
@@ -203,5 +203,5 @@ powershell.exe -ExecutionPolicy Bypass -File "%INSTALL_DIR%\bin\zaptui-launcher.
     }
 }
 
-Write-Host "`n🎉 Setup Complete!" -ForegroundColor Green
+Write-Host "`n[COMPLETE] Setup finished!" -ForegroundColor Green
 Write-Host ""
