@@ -1,0 +1,84 @@
+#!/bin/bash
+set -e
+
+# Change to script directory
+cd "$(dirname "$0")"
+
+# Path to binary
+BINARY="./target/release/zaptui"
+
+# Check if binary exists
+if [ ! -f "$BINARY" ]; then
+    echo "❌ Binary not found at $BINARY"
+    echo "Run './install.sh' first."
+    exit 1
+fi
+
+# Handle info flags directly without starting service
+if [[ "$1" == "--version" ]] || [[ "$1" == "--help" ]] || [[ "$1" == "-h" ]] || [[ "$1" == "-V" ]]; then
+    $BINARY "$@"
+    exit 0
+fi
+
+echo "🚀 ZapTUI - Starting..."
+echo ""
+
+# Check Node.js
+if ! command -v node &> /dev/null; then
+    echo "❌ Error: Node.js is not installed"
+    exit 1
+fi
+
+# Check WhatsApp service
+if [ ! -d "./whatsapp-service/node_modules" ]; then
+    echo "📦 WhatsApp service dependencies missing. Installing..."
+    cd whatsapp-service
+    npm install --silent
+    cd ..
+fi
+
+# Check port 8080
+if lsof -Pi :8080 -sTCP:LISTEN -t >/dev/null 2>&1 ; then
+    echo "❌ Error: Port 8080 is already in use"
+    echo "To fix, run: sudo lsof -ti:8080 | xargs kill -9"
+    exit 1
+fi
+
+# Cleanup function
+cleanup() {
+    echo ""
+    echo "🛑 Stopping WhatsApp service..."
+    if [ ! -z "$WA_PID" ]; then
+        kill $WA_PID 2>/dev/null || true
+    fi
+    pkill -f "node.*server.js" 2>/dev/null || true
+    sleep 0.5
+    if lsof -Pi :8080 -sTCP:LISTEN -t >/dev/null 2>&1; then
+        lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+    fi
+    echo "✅ Goodbye!"
+    exit 0
+}
+
+trap cleanup SIGINT SIGTERM EXIT
+
+# Start WhatsApp Service
+echo "🔌 Starting WhatsApp service..."
+cd whatsapp-service
+node server.js > /dev/null 2>&1 &
+WA_PID=$!
+cd ..
+
+# Wait for service
+sleep 2
+if ! kill -0 $WA_PID 2>/dev/null; then
+    echo "❌ Failed to start WhatsApp service"
+    exit 1
+fi
+
+echo "✅ Connected. launching TUI..."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+# Run TUI
+$BINARY "$@"

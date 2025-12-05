@@ -1,6 +1,6 @@
 # 📱 ZapTUI - WhatsApp for the Terminal
 
-> A fast, lightweight WhatsApp TUI client built with Rust and Ratatui
+> A fast, lightweight WhatsApp TUI client built with Rust and Ratatui.
 
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Build](https://img.shields.io/badge/build-passing-green)
@@ -12,446 +12,109 @@
 - 🔒 **QR Authentication** - Secure login via QR code
 - 📜 **Chat History** - Browse and scroll through message history
 - ⚡ **Instant Navigation** - Lightning-fast chat switching
-- 🎨 **Theme Support** - Adapts to your terminal colors (Kitty, Alacritty, etc.)
-- ⌨️ **Keyboard-Driven** - Navigate with vim-style keys or arrows
-- 🔍 **Focus System** - Tab through Chat List, Messages, and Input
+- 🎨 **Theme Support** - Adapts to your terminal colors
+- ⌨️ **Keyboard-Driven** - Vim-style keys or arrows
 - 🚀 **Lightweight** - Minimal resource usage
-- 🌍 **Cross-Platform** - Linux, macOS, WSL2
 
-## 📸 Screenshots
-
-_Coming soon - help us by contributing screenshots!_
-
-## 📦 Installation
+## 🚀 Quick Start
 
 ### Prerequisites
 
-Before installing ZapTUI, ensure you have the following dependencies:
+- **Rust** (1.70+)
+- **Node.js** (18+)
+- **npm**
 
-#### 1. **Rust** (version 1.70 or higher)
-
-Install via `rustup` (recommended):
-
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source $HOME/.cargo/env
-```
-
-Verify installation:
+### Installation
 
 ```bash
-rustc --version
-cargo --version
-```
-
-#### 2. **Node.js** (version 18 or higher)
-
-Install via your package manager:
-
-**Ubuntu/Debian:**
-
-```bash
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt-get install -y nodejs
-```
-
-**macOS (Homebrew):**
-
-```bash
-brew install node
-```
-
-**Arch Linux:**
-
-```bash
-sudo pacman -S nodejs npm
-```
-
-Or download from [nodejs.org](https://nodejs.org/)
-
-Verify installation:
-
-```bash
-node --version
-npm --version
-```
-
-#### 3. **Build Tools**
-
-**Linux:**
-
-```bash
-# Debian/Ubuntu
-sudo apt-get install build-essential
-
-# Arch Linux
-sudo pacman -S base-devel
-```
-
-**macOS:**
-
-```bash
-xcode-select --install
-```
-
-### Installing ZapTUI
-
-#### Step 1: Clone the Repository
-
-```bash
+# 1. Clone the repository
 git clone https://github.com/Negin3capa/zaptui.git
 cd zaptui
+
+# 2. Run the installer
+./install.sh
 ```
 
-#### Step 2: Install Node.js Dependencies
+The installer will:
 
-```bash
-npm install
-```
+1. Check dependencies
+2. Build the Rust binary
+3. Install Node.js backend dependencies
+4. Offer to add `zaptui` to your PATH
 
-This installs the WhatsApp Web.js library and other Node.js dependencies required for the backend service.
+### Usage
 
-#### Step 3: Build the Rust TUI
-
-```bash
-cd zaptui-rust
-cargo build --release
-```
-
-This will compile the Rust terminal interface. The first build may take several minutes as it downloads and compiles all dependencies.
-
-#### Step 4: Install Globally (Optional but Recommended)
-
-To make `zaptui` available from anywhere:
-
-```bash
-# Install the binary to your PATH
-cp target/release/zaptui ~/.cargo/bin/
-
-# Or copy to system-wide location
-sudo cp target/release/zaptui /usr/local/bin/
-```
-
-**Note:** Make sure `~/.cargo/bin` is in your PATH. Add this to your `~/.bashrc` or `~/.zshrc` if needed:
-
-```bash
-export PATH="$HOME/.cargo/bin:$PATH"
-```
-
-#### Step 5: Create Configuration Directory
-
-```bash
-mkdir -p ~/.config/zaptui
-```
-
-The config file will be created automatically on first run, or you can copy the example:
-
-```bash
-cp config.example.toml ~/.config/zaptui/config.toml
-```
-
-### Quick Install Script
-
-Alternatively, use the automated install script:
-
-```bash
-# From the project root directory
-cd zaptui-rust
-./scripts/install.sh
-```
-
-**Important:** The script must be run from inside the `zaptui-rust` directory, not the project root.
-
-### Verify Installation
-
-Check that ZapTUI is installed correctly:
-
-```bash
-zaptui --version
-```
-
-You should see output like: `zaptui 2.0.0`
-
-## 🗑️ Uninstall
-
-To completely remove ZapTUI from your system:
-
-### Step 1: Remove the Binary
-
-If you installed globally:
-
-```bash
-# If installed to ~/.cargo/bin
-rm ~/.cargo/bin/zaptui
-
-# Or if installed system-wide
-sudo rm /usr/local/bin/zaptui
-```
-
-### Step 2: Remove Configuration and Session Data
-
-```bash
-# Remove config directory
-rm -rf ~/.config/zaptui
-
-# Remove WhatsApp session data (if stored in project directory)
-cd /path/to/zaptui
-rm -rf .wwebjs_auth
-```
-
-### Step 3: Remove Project Files (Optional)
-
-If you want to remove the entire project:
-
-```bash
-# Navigate to parent directory
-cd ..
-
-# Remove the entire project directory
-rm -rf zaptui
-```
-
-### Step 4: Unlink WhatsApp Device (Recommended)
-
-For security, unlink the device from your WhatsApp account:
-
-1. Open WhatsApp on your phone
-2. Go to **Settings** → **Linked Devices**
-3. Find "ZapTUI" or the device name
-4. Tap and select **Log Out**
-
-### Verify Uninstall
-
-Check that ZapTUI is completely removed:
-
-```bash
-# This should return "command not found"
-which zaptui
-
-# Config directory should not exist
-ls ~/.config/zaptui
-```
-
-## 🚀 Usage
-
-Just run from anywhere:
+If you added it to your PATH:
 
 ```bash
 zaptui
 ```
 
-### First Run
+Otherwise:
 
-1. **Scan QR Code** - Open WhatsApp on your phone → Settings → Linked Devices → Link a Device
-2. **Scan the code** displayed in the terminal
-3. **Start chatting!**
+```bash
+./zaptui
+```
 
-The WhatsApp service starts automatically in the background.
+**First Run:**
 
-## ⌨️ Keyboard Shortcuts
+1. Open WhatsApp on your phone
+2. Go to **Settings** -> **Linked Devices** -> **Link a Device**
+3. Scan the QR code displayed in the terminal
 
-| Key        | Action                                     |
-| ---------- | ------------------------------------------ |
-| **Tab**    | Cycle focus (Chat List → Messages → Input) |
-| **j / ↓**  | Navigate down                              |
-| **k / ↑**  | Navigate up                                |
-| **Enter**  | Send message (when typing)                 |
-| **Esc**    | Clear input                                |
-| **Ctrl+C** | Quit                                       |
+## ⌨️ Controls
 
-### Focus States
-
-- **Chat List** (default) - Navigate chats with j/k or arrows
-- **Message View** - Scroll through messages with arrows
-- **Input** - Type and send messages
-
-_Any typing automatically focuses the input box_
+| Key                | Action                                    |
+| ------------------ | ----------------------------------------- |
+| `Tab`              | Switch focus (Chats -> Messages -> Input) |
+| `j`/`k` or `↓`/`↑` | Navigate lists                            |
+| `Enter`            | Send message (in input) / Select chat     |
+| `Esc`              | Clear input / Unfocus                     |
+| `Ctrl+C`           | Quit                                      |
 
 ## ⚙️ Configuration
 
-Config location: `~/.config/zaptui/config.toml`
+Configuration is stored at `~/.config/zaptui/config.toml`. It is automatically created on first run.
 
 ```toml
 [ui]
-theme = "terminal"  # Uses your terminal's color scheme
+theme = "terminal"
 
 [whatsapp]
 service_url = "ws://localhost:8080"
 ```
 
-See [docs/configuration.md](docs/configuration.md) for all options.
+## 🛠️ Troubleshooting
 
-## � Troubleshooting
-
-### "file not found" when running install script
-
-**Problem:** Running `./scripts/install.sh` from the project root gives "No such file or directory"
-
-**Solution:** The install script is located in `zaptui-rust/scripts/`, not at the project root. Run:
+**"Port 8080 is already in use"**
+Running `zaptui` again after a crash might show this. Run:
 
 ```bash
-cd zaptui-rust
-./scripts/install.sh
+sudo lsof -ti:8080 | xargs kill -9
 ```
 
-### Command not found: zaptui
+**"Binary not found"**
+Run `./install.sh` to rebuild.
 
-**Problem:** After installation, running `zaptui` gives "command not found"
-
-**Solutions:**
-
-1. Ensure `~/.cargo/bin` is in your PATH:
-
-   ```bash
-   echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.bashrc
-   source ~/.bashrc
-   ```
-
-2. Or copy to a system-wide location:
-   ```bash
-   sudo cp zaptui-rust/target/release/zaptui /usr/local/bin/
-   ```
-
-### Node.js dependencies fail to install
-
-**Problem:** `npm install` fails with permission errors
-
-**Solution:** Don't use `sudo` with npm. If you have permission issues:
+**Uninstall**
+Run `make uninstall` (if you used Make) or:
 
 ```bash
-npm config set prefix ~/.npm-global
-echo 'export PATH=$HOME/.npm-global/bin:$PATH' >> ~/.bashrc
-source ~/.bashrc
+rm -rf ~/.config/zaptui
+rm ~/.cargo/bin/zaptui
 ```
-
-### Rust compilation errors
-
-**Problem:** `cargo build` fails
-
-**Solutions:**
-
-1. Update Rust to the latest version:
-
-   ```bash
-   rustup update
-   ```
-
-2. Ensure you have build tools installed (see Prerequisites section above)
-
-### WhatsApp service won't connect
-
-**Problem:** TUI starts but shows "Connecting..." indefinitely
-
-**Solution:** The Node.js backend service should auto-start, but if it doesn't:
-
-1. Check if the service is running:
-
-   ```bash
-   ps aux | grep node
-   ```
-
-2. Manually test the service:
-
-   ```bash
-   node index.js
-   ```
-
-3. Check logs for errors
-
-### QR code not displaying properly
-
-**Problem:** QR code appears garbled or unreadable
-
-**Solutions:**
-
-1. Ensure your terminal supports Unicode
-2. Try a different terminal emulator (Kitty, Alacritty, or WezTerm work well)
-3. Increase terminal window size
-
-### Clean installation
-
-If you encounter persistent issues, clean and reinstall:
-
-```bash
-# From project root
-cd zaptui-rust
-./scripts/cleanup.sh
-
-# Then reinstall
-rm -rf target/
-cargo clean
-cargo build --release
-
-# Reinstall Node dependencies
-cd ..
-rm -rf node_modules/
-npm install
-```
-
-For more troubleshooting help, see [docs/troubleshooting.md](docs/troubleshooting.md) or [open an issue](https://github.com/Negin3capa/zaptui/issues).
-
-## 🗺️ Roadmap
-
-### Priority 1 ✅ COMPLETE
-
-- [x] QR authentication
-- [x] Send/receive messages
-- [x] Chat list
-- [x] Message history
-- [x] Session persistence
-- [x] Terminal theme support
-- [x] Focus system
-
-### Priority 2 (Planned)
-
-- [ ] Multi-line messages (Shift+Enter)
-- [ ] Media viewing (images/videos)
-- [ ] Search in chats
-- [ ] Desktop notifications
-- [ ] Last message previews
-- [ ] Unread message counts
-
-### Priority 3 (Future)
-
-- [ ] Group chat management
-- [ ] Contact management
-- [ ] Emoji picker
-- [ ] Package for AUR, Homebrew, Apt
 
 ## 🏗️ Architecture
 
 ZapTUI uses a hybrid architecture:
 
-- **Rust TUI** (`zaptui`) - Fast, responsive terminal interface
-- **Node.js Service** - WhatsApp Web.js wrapper with WebSocket API
-- **Communication** - Async WebSocket (ws://localhost:8080)
-
-This combines Rust's performance with the mature WhatsApp Web.js library.
+- **Rust TUI**: Renders the interface and handles user input (Ratatui).
+- **Node.js Service**: Wraps `whatsapp-web.js` to provide the WhatsApp API via WebSocket.
 
 ## 🤝 Contributing
 
-Contributions are welcome! Areas that need help:
-
-- 📸 Screenshots and demo GIFs
-- 🐛 Bug reports and fixes
-- ✨ New features from the roadmap
-- 📚 Documentation improvements
-- 🎨 Theme customization
+Contributions are welcome! Pull requests and issues are appreciated.
 
 ## 📄 License
 
-MIT License - see [LICENSE](LICENSE) for details
-
-## 🙏 Acknowledgments
-
-Built with:
-
-- [Ratatui](https://github.com/ratatui-org/ratatui) - Terminal UI framework
-- [WhatsApp Web.js](https://github.com/pedroslopez/whatsapp-web.js) - WhatsApp API
-- Inspired by [Discordo](https://github.com/ayn2op/discordo) and [spotify-player](https://github.com/aome510/spotify-player)
-
----
-
-<p align="center">
-  Made with ❤️ and ☕
-</p>
+MIT License.
