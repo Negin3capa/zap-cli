@@ -172,6 +172,66 @@ zaptui --version
 
 You should see output like: `zaptui 2.0.0`
 
+## 🗑️ Uninstall
+
+To completely remove ZapTUI from your system:
+
+### Step 1: Remove the Binary
+
+If you installed globally:
+
+```bash
+# If installed to ~/.cargo/bin
+rm ~/.cargo/bin/zaptui
+
+# Or if installed system-wide
+sudo rm /usr/local/bin/zaptui
+```
+
+### Step 2: Remove Configuration and Session Data
+
+```bash
+# Remove config directory
+rm -rf ~/.config/zaptui
+
+# Remove WhatsApp session data (if stored in project directory)
+cd /path/to/zaptui
+rm -rf .wwebjs_auth
+```
+
+### Step 3: Remove Project Files (Optional)
+
+If you want to remove the entire project:
+
+```bash
+# Navigate to parent directory
+cd ..
+
+# Remove the entire project directory
+rm -rf zaptui
+```
+
+### Step 4: Unlink WhatsApp Device (Recommended)
+
+For security, unlink the device from your WhatsApp account:
+
+1. Open WhatsApp on your phone
+2. Go to **Settings** → **Linked Devices**
+3. Find "ZapTUI" or the device name
+4. Tap and select **Log Out**
+
+### Verify Uninstall
+
+Check that ZapTUI is completely removed:
+
+```bash
+# This should return "command not found"
+which zaptui
+
+# Config directory should not exist
+ls ~/.config/zaptui
+```
+
 ## 🚀 Usage
 
 Just run from anywhere:
@@ -241,6 +301,7 @@ cd zaptui-rust
 **Solutions:**
 
 1. Ensure `~/.cargo/bin` is in your PATH:
+
    ```bash
    echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.bashrc
    source ~/.bashrc
@@ -270,6 +331,7 @@ source ~/.bashrc
 **Solutions:**
 
 1. Update Rust to the latest version:
+
    ```bash
    rustup update
    ```
@@ -283,11 +345,13 @@ source ~/.bashrc
 **Solution:** The Node.js backend service should auto-start, but if it doesn't:
 
 1. Check if the service is running:
+
    ```bash
    ps aux | grep node
    ```
 
 2. Manually test the service:
+
    ```bash
    node index.js
    ```

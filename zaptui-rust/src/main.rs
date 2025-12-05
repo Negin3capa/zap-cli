@@ -1,4 +1,5 @@
 use anyhow::Result;
+use clap::Parser;
 use crossterm::{
     event::{self, Event, KeyCode, KeyEventKind},
     execute,
@@ -19,8 +20,19 @@ use config::Config;
 use ui::App;
 use whatsapp::{WhatsAppClient, WhatsAppEvent};
 
+/// ZapTUI - WhatsApp Terminal User Interface
+#[derive(Parser, Debug)]
+#[command(name = "zaptui")]
+#[command(version, about = "A fast and beautiful TUI for WhatsApp", long_about = None)]
+struct Cli {
+    // No additional arguments for now, but --version and --help are automatic
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Parse CLI arguments (this handles --version and --help automatically)
+    let _cli = Cli::parse();
+
     // Initialize logging
     env_logger::init();
     log::info!("Starting ZapTUI v{}", env!("CARGO_PKG_VERSION"));
