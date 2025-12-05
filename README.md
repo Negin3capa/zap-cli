@@ -22,32 +22,155 @@
 
 _Coming soon - help us by contributing screenshots!_
 
-## 📦 Quick Install
+## 📦 Installation
 
 ### Prerequisites
 
-- **Node.js** 18+ (for WhatsApp Web.js service)
-- **Rust** 1.70+ (for building)
+Before installing ZapTUI, ensure you have the following dependencies:
 
-### One-Command Install
+#### 1. **Rust** (version 1.70 or higher)
+
+Install via `rustup` (recommended):
 
 ```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+source $HOME/.cargo/env
+```
+
+Verify installation:
+
+```bash
+rustc --version
+cargo --version
+```
+
+#### 2. **Node.js** (version 18 or higher)
+
+Install via your package manager:
+
+**Ubuntu/Debian:**
+
+```bash
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+```
+
+**macOS (Homebrew):**
+
+```bash
+brew install node
+```
+
+**Arch Linux:**
+
+```bash
+sudo pacman -S nodejs npm
+```
+
+Or download from [nodejs.org](https://nodejs.org/)
+
+Verify installation:
+
+```bash
+node --version
+npm --version
+```
+
+#### 3. **Build Tools**
+
+**Linux:**
+
+```bash
+# Debian/Ubuntu
+sudo apt-get install build-essential
+
+# Arch Linux
+sudo pacman -S base-devel
+```
+
+**macOS:**
+
+```bash
+xcode-select --install
+```
+
+### Installing ZapTUI
+
+#### Step 1: Clone the Repository
+
+```bash
+git clone https://github.com/Negin3capa/zaptui.git
+cd zaptui
+```
+
+#### Step 2: Install Node.js Dependencies
+
+```bash
+npm install
+```
+
+This installs the WhatsApp Web.js library and other Node.js dependencies required for the backend service.
+
+#### Step 3: Build the Rust TUI
+
+```bash
+cd zaptui-rust
+cargo build --release
+```
+
+This will compile the Rust terminal interface. The first build may take several minutes as it downloads and compiles all dependencies.
+
+#### Step 4: Install Globally (Optional but Recommended)
+
+To make `zaptui` available from anywhere:
+
+```bash
+# Install the binary to your PATH
+cp target/release/zaptui ~/.cargo/bin/
+
+# Or copy to system-wide location
+sudo cp target/release/zaptui /usr/local/bin/
+```
+
+**Note:** Make sure `~/.cargo/bin` is in your PATH. Add this to your `~/.bashrc` or `~/.zshrc` if needed:
+
+```bash
+export PATH="$HOME/.cargo/bin:$PATH"
+```
+
+#### Step 5: Create Configuration Directory
+
+```bash
+mkdir -p ~/.config/zaptui
+```
+
+The config file will be created automatically on first run, or you can copy the example:
+
+```bash
+cp config.example.toml ~/.config/zaptui/config.toml
+```
+
+### Quick Install Script
+
+Alternatively, use the automated install script:
+
+```bash
+# From the project root directory
 cd zaptui-rust
 ./scripts/install.sh
 ```
 
-This will:
-
-1. Install Node.js dependencies
-2. Build the optimized Rust binary
-3. Copy `zaptui` to `~/.cargo/bin/` (must be in your PATH)
-4. Create config at `~/.config/zaptui/config.toml`
+**Important:** The script must be run from inside the `zaptui-rust` directory, not the project root.
 
 ### Verify Installation
+
+Check that ZapTUI is installed correctly:
 
 ```bash
 zaptui --version
 ```
+
+You should see output like: `zaptui 2.0.0`
 
 ## 🚀 Usage
 
@@ -98,23 +221,110 @@ service_url = "ws://localhost:8080"
 
 See [docs/configuration.md](docs/configuration.md) for all options.
 
-## 🛠️ Advanced
+## � Troubleshooting
 
-### Manual Installation
+### "file not found" when running install script
 
-See [docs/installation.md](docs/installation.md)
+**Problem:** Running `./scripts/install.sh` from the project root gives "No such file or directory"
 
-### Troubleshooting
-
-See [docs/troubleshooting.md](docs/troubleshooting.md)
-
-### Cleanup
-
-If you encounter issues, use:
+**Solution:** The install script is located in `zaptui-rust/scripts/`, not at the project root. Run:
 
 ```bash
-./scripts/cleanup.sh
+cd zaptui-rust
+./scripts/install.sh
 ```
+
+### Command not found: zaptui
+
+**Problem:** After installation, running `zaptui` gives "command not found"
+
+**Solutions:**
+
+1. Ensure `~/.cargo/bin` is in your PATH:
+   ```bash
+   echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.bashrc
+   source ~/.bashrc
+   ```
+
+2. Or copy to a system-wide location:
+   ```bash
+   sudo cp zaptui-rust/target/release/zaptui /usr/local/bin/
+   ```
+
+### Node.js dependencies fail to install
+
+**Problem:** `npm install` fails with permission errors
+
+**Solution:** Don't use `sudo` with npm. If you have permission issues:
+
+```bash
+npm config set prefix ~/.npm-global
+echo 'export PATH=$HOME/.npm-global/bin:$PATH' >> ~/.bashrc
+source ~/.bashrc
+```
+
+### Rust compilation errors
+
+**Problem:** `cargo build` fails
+
+**Solutions:**
+
+1. Update Rust to the latest version:
+   ```bash
+   rustup update
+   ```
+
+2. Ensure you have build tools installed (see Prerequisites section above)
+
+### WhatsApp service won't connect
+
+**Problem:** TUI starts but shows "Connecting..." indefinitely
+
+**Solution:** The Node.js backend service should auto-start, but if it doesn't:
+
+1. Check if the service is running:
+   ```bash
+   ps aux | grep node
+   ```
+
+2. Manually test the service:
+   ```bash
+   node index.js
+   ```
+
+3. Check logs for errors
+
+### QR code not displaying properly
+
+**Problem:** QR code appears garbled or unreadable
+
+**Solutions:**
+
+1. Ensure your terminal supports Unicode
+2. Try a different terminal emulator (Kitty, Alacritty, or WezTerm work well)
+3. Increase terminal window size
+
+### Clean installation
+
+If you encounter persistent issues, clean and reinstall:
+
+```bash
+# From project root
+cd zaptui-rust
+./scripts/cleanup.sh
+
+# Then reinstall
+rm -rf target/
+cargo clean
+cargo build --release
+
+# Reinstall Node dependencies
+cd ..
+rm -rf node_modules/
+npm install
+```
+
+For more troubleshooting help, see [docs/troubleshooting.md](docs/troubleshooting.md) or [open an issue](https://github.com/Negin3capa/zaptui/issues).
 
 ## 🗺️ Roadmap
 
