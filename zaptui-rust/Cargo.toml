@@ -1,0 +1,57 @@
+[package]
+name = "zaptui"
+version = "2.0.0"
+edition = "2021"
+authors = ["ZapTUI Contributors"]
+description = "WhatsApp Terminal User Interface - A fast and beautiful TUI for WhatsApp"
+license = "MIT"
+repository = "https://github.com/Negin3capa/zap-cli"
+keywords = ["whatsapp", "tui", "terminal", "messaging"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "zaptui"
+path = "src/main.rs"
+
+[dependencies]
+# TUI Framework
+ratatui = "0.29"
+crossterm = "0.28"
+
+# Async Runtime
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = "0.24"
+futures-util = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+
+# Utilities
+anyhow = "1"
+chrono = "0.4"
+qrcode = "0.14"
+lru = "0.12"
+uuid = { version = "1", features = ["v4", "serde"] }
+log = "0.4"
+env_logger = "0.11"
+base64 = "0.22"
+dirs = "5.0"  # For XDG directories
+
+# Terminal utilities
+strip-ansi-escapes = "0.2"
+
+# Input handling
+tui-textarea = "0.6"
+
+[dev-dependencies]
+assert_cmd = "2"
+predicates = "3"
+tempfile = "3"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

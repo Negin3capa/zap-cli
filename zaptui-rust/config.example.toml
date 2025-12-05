@@ -1,0 +1,17 @@
+[whatsapp]
+service_url = "ws://localhost:8080"
+session_path = "./.wwebjs_auth"
+
+[media]
+download_path = "./media"
+auto_download = true
+kitty_graphics = true
+
+[ui]
+theme = "dark"
+show_avatars = true
+relative_timestamps = true
+
+[notifications]
+enabled = true
+muted_chats = []
