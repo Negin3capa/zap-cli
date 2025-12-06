@@ -57,6 +57,7 @@ pub struct App {
     message_scroll: u16,  // Scroll offset for message view (0 = bottom/newest)
     input_buffer: String,
     loading_more_messages: HashMap<String, bool>,  // Track if loading older messages for a chat
+    chats_needing_sync: std::collections::HashSet<String>,  // Track chats with new updates that need syncing
     
     // Authentication
     qr_code: Option<String>,
@@ -85,6 +86,7 @@ impl App {
             message_scroll: 0,
             input_buffer: String::new(),
             loading_more_messages: HashMap::new(),
+            chats_needing_sync: std::collections::HashSet::new(),
             qr_code: None,
             status_message: "Connecting to WhatsApp...".to_string(),
         }
@@ -147,22 +149,30 @@ impl App {
             }
             
             WhatsAppEvent::MessageReceived(msg) => {
-                log::debug!("Received message in chat {}", msg.chat_id);
+            log::debug!("Received message in chat {}", msg.chat_id);
 
-                // Add to messages
-                self.messages.entry(msg.chat_id.clone())
-                    .or_insert_with(Vec::new)
-                    .push(msg.clone());
+            // Add/update message with deduplication
+            let chat_messages = self.messages.entry(msg.chat_id.clone())
+                .or_insert_with(Vec::new);
 
-                // Update chat's last message and timestamp
-                if let Some(chat) = self.chats.iter_mut().find(|c| c.id == msg.chat_id) {
-                    chat.last_message = Some(msg.body.clone());
-                    chat.timestamp = msg.timestamp;
-                    if !msg.from_me {
-                        chat.unread_count += 1;
-                    }
+            // Check if message already exists (prevents duplicates from event + sync)
+            if !chat_messages.iter().any(|m| m.id == msg.id) {
+                chat_messages.push(msg.clone());
+                // Sort by timestamp to maintain chronological order
+                chat_messages.sort_by_key(|m| m.timestamp);
+
+                // Mark this chat as needing a background sync to get full context
+                self.chats_needing_sync.insert(msg.chat_id.clone());
+            }
+
+            // Update chat's last message and timestamp
+            if let Some(chat) = self.chats.iter_mut().find(|c| c.id == msg.chat_id) {
+                chat.last_message = Some(msg.body.clone());
+                chat.timestamp = msg.timestamp;
+                if !msg.from_me {
+                    chat.unread_count += 1;
                 }
-
+            }
                 // Get the currently selected chat ID (if any) before re-sorting
                 // Need to account for "Archived Messages" offset (index 0) and view filtering
                 let selected_chat_id = if let Some(visual_index) = self.chat_list_state.selected() {
@@ -221,6 +231,7 @@ impl App {
                 // Merge with existing messages (for pagination)
                 if let Some(existing) = self.messages.get_mut(&chat_id) {
                     let old_count = existing.len();
+                    log::info!("Merging {} new messages with {} existing messages", new_messages.len(), old_count);
                     
                     // Prepend new messages (older ones) and deduplicate
                     let mut all_messages = new_messages.clone();
@@ -236,11 +247,10 @@ impl App {
                     *existing = all_messages;
                     
                     let new_count = existing.len() - old_count;
-                    if new_count > 0 {
-                        log::info!("Loaded {} new older messages", new_count);
-                    }
+                    log::info!("After merge: {} total messages ({} new)", existing.len(), new_count);
                 } else {
                     // Initial load
+                    log::info!("Initial load of {} messages for chat {}", new_messages.len(), chat_id);
                     self.messages.insert(chat_id.clone(), new_messages.clone());
                 }
                 
@@ -451,7 +461,7 @@ impl App {
                             // Pagination: Check if we're near the top (within 5 lines of oldest message)
                             if (self.message_scroll as usize) >= max_scroll.saturating_sub(5) {
                                 let is_loading = self.loading_more_messages.get(chat_id).copied().unwrap_or(false);
-                                if !is_loading && num_lines >= 50 {  // Only paginate if we have at least initial load
+                                if !is_loading && num_lines >= 100 {  // Only paginate if we have at least initial load (was 50)
                                     self.load_more_messages(chat_id.clone(), num_lines);
                                 }
                             }
@@ -584,8 +594,14 @@ impl App {
                 let event_tx = self.event_tx.clone();
 
                 tokio::spawn(async move {
-                    match client.get_messages(&chat_id, 50).await {
+                    match client.get_messages(&chat_id, 100).await {
                         Ok(messages) => {
+                            log::info!("Fetched {} messages for chat {}", messages.len(), chat_id);
+                            if !messages.is_empty() {
+                                let oldest = messages.first().map(|m| m.timestamp).unwrap_or(0);
+                                let newest = messages.last().map(|m| m.timestamp).unwrap_or(0);
+                                log::info!("Message range: oldest={} newest={}", oldest, newest);
+                            }
                             let _ = event_tx.send(WhatsAppEvent::MessagesLoaded(chat_id, messages)).await;
                         }
                         Err(e) => {
@@ -634,12 +650,49 @@ impl App {
         });
     }
 
+    /// Background sync for chats that have received updates
+    /// Only syncs chats that are marked in chats_needing_sync
+    pub fn background_sync_updated_chats(&mut self) {
+        if self.chats_needing_sync.is_empty() {
+            return; // Nothing to sync
+        }
+
+        // Take ownership of the set to avoid borrow checker issues
+        let chats_to_sync: Vec<String> = self.chats_needing_sync.drain().collect();
+
+        log::info!("Background syncing {} chats with updates", chats_to_sync.len());
+
+        for chat_id in chats_to_sync {
+            // Skip current chat if it's being synced by the main interval
+            if Some(&chat_id) == self.current_chat_id.as_ref() {
+                continue;
+            }
+
+            let client = self.client.clone();
+            let event_tx = self.event_tx.clone();
+            let chat_id_clone = chat_id.clone();
+
+            tokio::spawn(async move {
+                // Get full context (100 messages) to ensure we have everything
+                match client.get_messages(&chat_id_clone, 100).await {
+                    Ok(messages) => {
+                        log::debug!("Background sync loaded {} messages for {}", messages.len(), chat_id_clone);
+                        let _ = event_tx.send(WhatsAppEvent::MessagesLoaded(chat_id_clone, messages)).await;
+                    }
+                    Err(e) => {
+                        log::warn!("Background sync failed for {}: {}", chat_id_clone, e);
+                    }
+                }
+            });
+        }
+    }
+
     /// Refresh messages for the current chat (useful for periodic sync)
     pub async fn refresh_current_chat_messages(&mut self) -> Result<()> {
         if let Some(chat_id) = &self.current_chat_id {
             log::debug!("Refreshing messages for current chat: {}", chat_id);
 
-            match self.client.get_messages(chat_id, 50).await {
+            match self.client.get_messages(chat_id, 100).await {
                 Ok(messages) => {
                     let old_count = self.messages.get(chat_id).map(|m| m.len()).unwrap_or(0);
                     let new_count = messages.len();

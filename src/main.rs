@@ -80,8 +80,11 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, config: 
     // Create app state
     let mut app = App::new(config.clone(), whatsapp_client, event_tx.clone());
 
-    // Create a periodic sync timer (every 30 seconds)
+    // Create a periodic sync timer (every 30 seconds for current chat)
     let mut sync_interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+
+    // Background sync for chats with updates (every 2 minutes)
+    let mut background_sync_interval = tokio::time::interval(tokio::time::Duration::from_secs(120));
 
     // Dirty flag for conditional rendering
     let mut needs_render = true;
@@ -146,6 +149,12 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, config: 
                 if let Err(e) = app.refresh_current_chat_messages().await {
                     log::warn!("Periodic sync failed: {}", e);
                 }
+                needs_render = true;
+            }
+
+            // Background sync for chats with updates (every 2 minutes)
+            _ = background_sync_interval.tick() => {
+                app.background_sync_updated_chats();
                 needs_render = true;
             }
         }
