@@ -185,7 +185,7 @@ case $CHOICE in
 
         # Install wrapper script
         echo "📋 Installing wrapper..."
-        cp zaptui-wrapper "$BIN_DIR/zaptui"
+        cp scripts/zaptui-linux "$BIN_DIR/zaptui"
         chmod +x "$BIN_DIR/zaptui"
 
         # Migrate auth data if it exists
