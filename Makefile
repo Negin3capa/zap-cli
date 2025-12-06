@@ -11,7 +11,7 @@ ifeq ($(UNAME_S),Darwin)
     PLATFORM := macos
 endif
 
-.PHONY: all build install install-global uninstall clean run help
+.PHONY: all build install install-global uninstall clean run help restart dev dev-tmux watch-check
 
 all: build
 
@@ -25,6 +25,12 @@ help:
 	@echo "  make uninstall       - Uninstall ZapTUI"
 	@echo "  make clean           - Clean build artifacts"
 	@echo "  make run             - Build and run"
+	@echo ""
+	@echo "Development:"
+	@echo "  make restart         - Stop, rebuild, ready to run"
+	@echo "  make dev             - Watch + auto-rebuild (run manually in 2nd terminal)"
+	@echo "  make dev-tmux        - Multi-pane dev environment (RECOMMENDED)"
+	@echo "  make watch-check     - Fast syntax checking only"
 	@echo ""
 	@echo "Platform: $(PLATFORM)"
 	@echo ""
@@ -66,3 +72,17 @@ ifeq ($(PLATFORM),macos)
 else
 	./zaptui
 endif
+
+# Development workflow targets
+restart:
+	@./scripts/restart.sh
+
+dev:
+	@./scripts/dev.sh
+
+dev-tmux:
+	@./scripts/dev-tmux.sh
+
+watch-check:
+	@echo "Starting fast check mode (no build)..."
+	@cargo watch -x check
