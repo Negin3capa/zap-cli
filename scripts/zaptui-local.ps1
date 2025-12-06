@@ -1,4 +1,5 @@
-# ZapTUI Local Windows Launcher (for development)
+# ZapTUI Local Windows Launcher (Development)
+# Manages the WhatsApp service and launches the TUI from source
 # Run from the project directory
 
 param(
@@ -8,29 +9,34 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# Change to script directory
+# Change to script directory's parent (project root)
 Set-Location $PSScriptRoot\..
+$projectRoot = Get-Location
 
 # Paths
-$binary = ".\target\release\zaptui.exe"
-$serviceDir = ".\whatsapp-service"
+$serviceDir = "$projectRoot\whatsapp-service"
+$authDir = "$projectRoot\.wwebjs_auth"
+$binary = "$projectRoot\target\release\zaptui.exe"
+$serviceLog = "$env:TEMP\zaptui-service.log"
+$serviceErr = "$env:TEMP\zaptui-service-error.log"
 
-# Handle info flags
-if ($PassThruArgs -contains "--version" -or $PassThruArgs -contains "--help") {
+# Handle info flags directly without starting service
+if ($PassThruArgs -contains "--version" -or $PassThruArgs -contains "--help" -or
+    $PassThruArgs -contains "-h" -or $PassThruArgs -contains "-V") {
     if (Test-Path $binary) {
         & $binary $PassThruArgs
         exit $LASTEXITCODE
     } else {
-        Write-Host "❌ Binary not found at $binary" -ForegroundColor Red
-        Write-Host "Run 'install.ps1' first." -ForegroundColor Yellow
+        Write-Host "❌ ZapTUI binary not found at $binary" -ForegroundColor Red
+        Write-Host "Run 'cargo build --release' first." -ForegroundColor Yellow
         exit 1
     }
 }
 
-# Check binary exists
+# Check if binary exists
 if (-not (Test-Path $binary)) {
-    Write-Host "❌ Binary not found at $binary" -ForegroundColor Red
-    Write-Host "Run 'install.ps1' first." -ForegroundColor Yellow
+    Write-Host "❌ ZapTUI binary not found at $binary" -ForegroundColor Red
+    Write-Host "Run 'cargo build --release' first." -ForegroundColor Yellow
     exit 1
 }
 
@@ -43,7 +49,7 @@ if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-# Check WhatsApp service
+# Check if service dependencies are installed
 if (-not (Test-Path "$serviceDir\node_modules")) {
     Write-Host "📦 WhatsApp service dependencies missing. Installing..." -ForegroundColor Yellow
     Push-Location $serviceDir
@@ -51,59 +57,68 @@ if (-not (Test-Path "$serviceDir\node_modules")) {
     Pop-Location
 }
 
-# Check if port 8080 is in use
+# Check if service is already running on port 8080
+$serviceAlreadyRunning = $false
 $connection = Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue
 if ($connection) {
-    Write-Host "❌ Error: Port 8080 is already in use" -ForegroundColor Red
-    Write-Host "To fix, run this in PowerShell as Administrator:" -ForegroundColor Yellow
-    Write-Host "  Get-Process -Id $($connection.OwningProcess) | Stop-Process -Force" -ForegroundColor Cyan
-    exit 1
+    Write-Host "✅ WhatsApp service already running (shared)" -ForegroundColor Green
+    $serviceAlreadyRunning = $true
 }
 
 # Cleanup function
-$serviceProcess = $null
-function Cleanup {
+function Stop-Service {
     Write-Host ""
-    Write-Host "🛑 Stopping WhatsApp service..." -ForegroundColor Yellow
-    
-    if ($serviceProcess -and -not $serviceProcess.HasExited) {
-        $serviceProcess.Kill()
+    if (-not $serviceAlreadyRunning) {
+        Write-Host "🛑 Stopping WhatsApp service..." -ForegroundColor Yellow
+
+        # Kill Node.js processes running server.js
+        Get-Process -Name node -ErrorAction SilentlyContinue | Where-Object {
+            $_.Path -and $_.CommandLine -like "*server.js*"
+        } | Stop-Process -Force -ErrorAction SilentlyContinue
+
+        # Force kill anything on port 8080
+        Start-Sleep -Milliseconds 500
+        $conn = Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue
+        if ($conn) {
+            $processPid = $conn.OwningProcess
+            Stop-Process -Id $processPid -Force -ErrorAction SilentlyContinue
+        }
+    } else {
+        Write-Host "ℹ️  Leaving shared service running for other instances" -ForegroundColor Cyan
     }
-    
-    # Cleanup any remaining node processes
-    Get-Process -Name node -ErrorAction SilentlyContinue | Where-Object {
-        $_.Path -and $_.CommandLine -like "*server.js*"
-    } | Stop-Process -Force -ErrorAction SilentlyContinue
-    
-    # Force cleanup port 8080
-    Start-Sleep -Milliseconds 500
-    $conn = Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue
-    if ($conn) {
-        Stop-Process -Id $conn.OwningProcess -Force -ErrorAction SilentlyContinue
-    }
-    
     Write-Host "✅ Goodbye!" -ForegroundColor Green
 }
 
-# Handle Ctrl+C
-[Console]::TreatControlCAsInput = $false
-$null = Register-EngineEvent PowerShell.Exiting -Action { Cleanup }
+# Register cleanup on exit
+Register-EngineEvent PowerShell.Exiting -Action { Stop-Service } | Out-Null
 
-# Start WhatsApp Service
-Write-Host "🔌 Starting WhatsApp service..." -ForegroundColor Cyan
-Push-Location $serviceDir
-$serviceProcess = Start-Process -FilePath "node" -ArgumentList "server.js" -NoNewWindow -PassThru -RedirectStandardOutput "$env:TEMP\zaptui-service.log" -RedirectStandardError "$env:TEMP\zaptui-service-error.log"
-Pop-Location
+# Start WhatsApp Service if not already running
+if (-not $serviceAlreadyRunning) {
+    Write-Host "🔌 Starting WhatsApp service..." -ForegroundColor Cyan
 
-# Wait for service
-Start-Sleep -Seconds 2
-if ($serviceProcess.HasExited) {
-    Write-Host "❌ Failed to start WhatsApp service" -ForegroundColor Red
-    Write-Host "Check logs at: $env:TEMP\zaptui-service-error.log" -ForegroundColor Yellow
-    exit 1
+    # Set auth path via environment variable (optional for local, but good for consistency)
+    $env:ZAPTUI_AUTH_PATH = $authDir
+
+    # Start Node.js service in background
+    Push-Location $serviceDir
+    $serviceProcess = Start-Process -FilePath "node" -ArgumentList "server.js" -NoNewWindow -PassThru -RedirectStandardOutput $serviceLog -RedirectStandardError $serviceErr
+    Pop-Location
+
+    # Wait for service to start
+    Start-Sleep -Seconds 2
+
+    if ($serviceProcess.HasExited) {
+        Write-Host "❌ Failed to start WhatsApp service" -ForegroundColor Red
+        Write-Host "Check logs at: $serviceErr" -ForegroundColor Yellow
+        Get-Content $serviceErr -Tail 10 | Write-Host -ForegroundColor Gray
+        exit 1
+    }
+
+    Write-Host "✅ Connected. launching TUI..." -ForegroundColor Green
+} else {
+    Write-Host "🚀 Launching TUI..." -ForegroundColor Cyan
 }
 
-Write-Host "✅ Connected. launching TUI..." -ForegroundColor Green
 Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Blue
 Write-Host ""
 
@@ -112,10 +127,10 @@ try {
     & $binary $PassThruArgs
     $exitCode = $LASTEXITCODE
 } catch {
-    Write-Host "❌ Error: $_" -ForegroundColor Red
+    Write-Host "❌ Error running ZapTUI: $_" -ForegroundColor Red
     $exitCode = 1
 } finally {
-    Cleanup
+    Stop-Service
 }
 
 exit $exitCode

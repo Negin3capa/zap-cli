@@ -32,6 +32,13 @@ All platforms require:
 - **Node.js** (18+) - [Install from nodejs.org](https://nodejs.org/)
 - **npm** (comes with Node.js)
 
+**System Build Tools:**
+To compile the Rust binary, you need a C linker and build tools installed:
+
+- **Linux:** `build-essential` (Ubuntu/Debian), `base-devel` (Arch), or equivalent.
+- **macOS:** Xcode Command Line Tools (`xcode-select --install`).
+- **Windows:** C++ Build Tools (via Visual Studio Installer).
+
 ### Installation
 
 #### Linux
@@ -89,6 +96,30 @@ Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 
 The installer will place files in `%LOCALAPPDATA%\zaptui` and optionally add to PATH.
 
+#### Manual Installation
+
+If you prefer to install manually without the scripts:
+
+1. **Build the Rust binary:**
+
+   ```bash
+   cargo build --release
+   ```
+
+2. **Install Service Dependencies:**
+
+   ```bash
+   cd whatsapp-service
+   npm install
+   cd ..
+   ```
+
+3. **Run:**
+   - **Linux/macOS:** `./target/release/zaptui`
+   - **Windows:** `.\target\release\zaptui.exe`
+
+   _Note: For manual runs, ensure `node` is in your PATH._
+
 ### Usage
 
 After installation, run from anywhere:
@@ -107,9 +138,11 @@ Or from the project directory:
 
 **First Run:**
 
-1. Open WhatsApp on your phone
-2. Go to **Settings** -> **Linked Devices** -> **Link a Device**
-3. Scan the QR code displayed in the terminal
+1. Run `zaptui`.
+2. **Wait a few moments** for the WhatsApp service to initialize.
+3. Open WhatsApp on your phone.
+4. Go to **Settings** -> **Linked Devices** -> **Link a Device**.
+5. Scan the QR code displayed in the terminal.
 
 ## ⌨️ Controls
 
@@ -123,7 +156,13 @@ Or from the project directory:
 
 ## ⚙️ Configuration
 
-Configuration is stored at `~/.config/zaptui/config.toml`. It is automatically created on first run.
+Configuration is stored at:
+
+- **Linux:** `~/.config/zaptui/config.toml`
+- **macOS:** `~/Library/Application Support/zaptui/config.toml`
+- **Windows:** `%APPDATA%\zaptui\config.toml`
+
+It is automatically created on first run.
 
 ```toml
 [ui]
@@ -149,7 +188,7 @@ sudo lsof -ti:8080 | xargs kill -9
 lsof -ti:8080 | xargs kill -9
 ```
 
-#### "Binary not found"
+#### "Binary not found" (Linux/macOS)
 
 Run the installer again:
 
@@ -160,7 +199,7 @@ Run the installer again:
 
 ### Windows Troubleshooting
 
-**"Port 8080 is already in use"**
+#### "Port 8080 is already in use" (Windows)
 
 In PowerShell as Administrator:
 
@@ -176,7 +215,7 @@ Enable PowerShell script execution:
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 ```
 
-#### "Binary not found"
+#### "Binary not found" (Windows)
 
 Run the installer again:
 
@@ -220,4 +259,4 @@ Contributions are welcome! Pull requests and issues are appreciated.
 
 ## 📄 License
 
-MIT License.
+[MIT License](LICENSE).

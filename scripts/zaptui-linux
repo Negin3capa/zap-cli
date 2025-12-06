@@ -97,8 +97,6 @@ else
     echo "🚀 Launching TUI..."
 fi
 
-echo "✅ Connected. launching TUI..."
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
 # Run TUI
