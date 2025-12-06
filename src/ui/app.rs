@@ -52,6 +52,8 @@ pub struct App {
     chat_list_state: ListState,
     chat_list_scroll: usize,  // Scroll offset for chat list
     chat_list_area: Rect,  // Store chat list area for mouse click detection
+    message_view_area: Rect,  // Store message view area for mouse detection
+    input_area: Rect,  // Store input area for mouse detection
     message_scroll: u16,  // Scroll offset for message view
     input_buffer: String,
     
@@ -77,6 +79,8 @@ impl App {
             chat_list_state: ListState::default(),
             chat_list_scroll: 0,
             chat_list_area: Rect::default(),
+            message_view_area: Rect::default(),
+            input_area: Rect::default(),
             message_scroll: 0,
             input_buffer: String::new(),
             qr_code: None,
@@ -295,21 +299,21 @@ impl App {
     async fn handle_mouse(&mut self, mouse: MouseEvent) -> Result<bool> {
         match mouse.kind {
             MouseEventKind::Down(MouseButton::Left) => {
-                // Check if click is within chat list area
                 let x = mouse.column;
                 let y = mouse.row;
 
+                // Check which area was clicked (in priority order)
+                
+                // 1. Chat list area
                 if x >= self.chat_list_area.x && x < self.chat_list_area.x + self.chat_list_area.width
                     && y >= self.chat_list_area.y && y < self.chat_list_area.y + self.chat_list_area.height
                 {
                     // Calculate which item was clicked
-                    // Subtract 1 for the border at the top
                     let relative_y = y.saturating_sub(self.chat_list_area.y + 1);
                     let clicked_index = self.chat_list_scroll + relative_y as usize;
 
                     // First item (index 0) is always "Archived Messages" - clicking toggles view
                     if clicked_index == 0 {
-                        // Toggle between Normal and Archived view
                         self.chat_list_view = match self.chat_list_view {
                             ChatListView::Normal => ChatListView::Archived,
                             ChatListView::Archived => ChatListView::Normal,
@@ -335,28 +339,63 @@ impl App {
 
                         // Find this chat's absolute index in self.chats
                         if let Some(abs_index) = self.chats.iter().position(|c| c.id == chat_id) {
-                            // Select the clicked chat
                             self.chat_list_state.select(Some(clicked_index));
                             self.focused = FocusedWidget::ChatList;
-
-                            // Clear input and reset message scroll
                             self.input_buffer.clear();
                             self.message_scroll = 0;
-
-                            // Load messages for the clicked chat
                             self.load_chat_messages_background(abs_index).await?;
                         }
                     }
                 }
+                // 2. Message view area
+                else if x >= self.message_view_area.x && x < self.message_view_area.x + self.message_view_area.width
+                    && y >= self.message_view_area.y && y < self.message_view_area.y + self.message_view_area.height
+                {
+                    // Focus message view
+                    self.focused = FocusedWidget::MessageView;
+                }
+                // 3. Input area
+                else if x >= self.input_area.x && x < self.input_area.x + self.input_area.width
+                    && y >= self.input_area.y && y < self.input_area.y + self.input_area.height
+                {
+                    // Focus input
+                    self.focused = FocusedWidget::Input;
+                }
             }
             MouseEventKind::ScrollDown => {
-                // Scroll the chat list down (show later items)
-                let max_scroll = self.chats.len().saturating_sub(1);
-                self.chat_list_scroll = (self.chat_list_scroll + 1).min(max_scroll);
+                // Scroll based on focused widget
+                match self.focused {
+                    FocusedWidget::ChatList => {
+                        // Scroll the chat list down (show later items)
+                        let max_scroll = self.chats.len().saturating_sub(1);
+                        self.chat_list_scroll = (self.chat_list_scroll + 1).min(max_scroll);
+                    }
+                    FocusedWidget::MessageView => {
+                        // Only scroll if we have messages to scroll
+                        if let Some(chat_id) = &self.current_chat_id {
+                            if let Some(messages) = self.messages.get(chat_id) {
+                                // Don't scroll beyond the content
+                                // We'll let the render function handle clamping
+                                self.message_scroll = self.message_scroll.saturating_add(3);
+                            }
+                        }
+                    }
+                    _ => {}
+                }
             }
             MouseEventKind::ScrollUp => {
-                // Scroll the chat list up (show earlier items)
-                self.chat_list_scroll = self.chat_list_scroll.saturating_sub(1);
+                // Scroll based on focused widget
+                match self.focused {
+                    FocusedWidget::ChatList => {
+                        // Scroll the chat list up (show earlier items)
+                        self.chat_list_scroll = self.chat_list_scroll.saturating_sub(1);
+                    }
+                    FocusedWidget::MessageView => {
+                        // Scroll messages up (show newer messages)
+                        self.message_scroll = self.message_scroll.saturating_sub(3);
+                    }
+                    _ => {}
+                }
             }
             _ => {}
         }
@@ -802,7 +841,9 @@ impl App {
         frame.render_stateful_widget(list, area, &mut display_state);
     }
     
-    fn render_messages(&self, frame: &mut Frame, area: Rect) {
+    fn render_messages(&mut self, frame: &mut Frame, area: Rect) {
+        // Store area for mouse detection
+        self.message_view_area = area;
         let title = if let Some(chat_id) = &self.current_chat_id {
             self.chats.iter()
                 .find(|c| c.id == *chat_id)
@@ -855,6 +896,14 @@ impl App {
         let num_lines = messages_text.len();
         let available_height = area.height.saturating_sub(2) as usize;
         
+        // Calculate max scroll to prevent scrolling beyond content
+        let max_scroll = num_lines.saturating_sub(available_height);
+        
+        // Clamp scroll to valid range
+        if (self.message_scroll as usize) > max_scroll {
+            self.message_scroll = max_scroll as u16;
+        }
+        
         // Use manual scroll if > 0, otherwise auto-scroll to bottom
         let scroll_offset = if self.message_scroll > 0 {
             self.message_scroll
@@ -882,7 +931,9 @@ impl App {
         frame.render_widget(paragraph, area);
     }
     
-    fn render_input(&self, frame: &mut Frame, area: Rect) {
+    fn render_input(&mut self, frame: &mut Frame, area: Rect) {
+        // Store area for mouse detection
+        self.input_area = area;
         let border_color = if self.focused == FocusedWidget::Input {
             self.theme.border_focused
         } else {
