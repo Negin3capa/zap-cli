@@ -146,12 +146,12 @@ impl WhatsAppClient {
             .context(format!("Failed to parse chats. JSON: {}", serde_json::to_string(&result).unwrap_or_else(|_| "?".to_string())))
     }
     
-    /// Get messages for a chat
+    /// Get messages for a chat (with longer timeout for large chats)
     pub async fn get_messages(&self, chat_id: &str, limit: usize) -> Result<Vec<Message>> {
-        let result = self.request("getMessages", json!({
+        let result = self.request_with_timeout("getMessages", json!({
             "chatId": chat_id,
             "limit": limit
-        })).await?;
+        }), 120).await?;  // 120 second timeout for large chats
         serde_json::from_value(result).context("Failed to parse messages")
     }
     

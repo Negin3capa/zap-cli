@@ -27,6 +27,9 @@ pub enum WhatsAppEvent {
     ChatsLoaded(Vec<Chat>),
 
     #[serde(skip)]
+    MessagesLoaded(String, Vec<Message>),  // chat_id, messages
+
+    #[serde(skip)]
     Error(String),
 }
 
@@ -36,12 +39,15 @@ pub struct Chat {
     pub id: String,
     pub name: String,
     pub is_group: bool,
-    
+
     #[serde(default)]
     pub unread_count: u32,
-    
+
+    #[serde(default)]
+    pub archived: bool,
+
     pub timestamp: i64,
-    
+
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_message: Option<String>,
 }

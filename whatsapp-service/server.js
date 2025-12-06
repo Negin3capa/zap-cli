@@ -198,6 +198,7 @@ class WhatsAppService {
       name: chat.name || chat.id.user || "Unknown",
       is_group: chat.isGroup || false,
       unread_count: chat.unreadCount || 0,
+      archived: chat.archived || false,
       timestamp: chat.timestamp || Math.floor(Date.now() / 1000),
       last_message: chat.lastMessage?.body || null,
     };

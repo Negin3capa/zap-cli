@@ -1,7 +1,7 @@
 use anyhow::Result;
 use clap::Parser;
 use crossterm::{
-    event::{self, Event, KeyCode, KeyEventKind},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -44,16 +44,21 @@ async fn main() -> Result<()> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
     // Run app
     let result = run_app(&mut terminal, config).await;
 
+    // Flush pending input events before cleanup to avoid escape codes leaking to terminal
+    while event::poll(std::time::Duration::from_millis(0))? {
+        let _ = event::read()?;
+    }
+
     // Cleanup terminal
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(terminal.backend_mut(), DisableMouseCapture, LeaveAlternateScreen)?;
     terminal.show_cursor()?;
 
     // Print any errors
@@ -75,37 +80,43 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, config: 
     // Create app state
     let mut app = App::new(config.clone(), whatsapp_client, event_tx.clone());
 
-    // Create a periodic sync timer (every 30 seconds)
+    // Create a periodic sync timer (every 30 seconds for current chat)
     let mut sync_interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+
+    // Background sync for chats with updates (every 2 minutes)
+    let mut background_sync_interval = tokio::time::interval(tokio::time::Duration::from_secs(120));
+
+    // Dirty flag for conditional rendering
+    let mut needs_render = true;
 
     // Main event loop
     loop {
-        // Render UI
-        terminal.draw(|frame| {
-            app.render(frame);
-        })?;
+        // Only render if something changed
+        if needs_render {
+            terminal.draw(|frame| {
+                app.render(frame);
+            })?;
+            needs_render = false;
+        }
 
-        // Handle events
+        // Handle events with priority on user input
         tokio::select! {
-            // WhatsApp events from service
-            Some(wa_event) = event_rx.recv() => {
-                app.handle_whatsapp_event(wa_event).await?;
-            }
+            biased;  // Process branches in order for input priority
             
-            // Periodic sync
-            _ = sync_interval.tick() => {
-                // Only sync if we're in Ready state and have a current chat
-                if let Err(e) = app.refresh_current_chat_messages().await {
-                    log::warn!("Periodic sync failed: {}", e);
-                }
-            }
-
-            // Terminal events (keyboard/mouse)
-            _ = tokio::time::sleep(tokio::time::Duration::from_millis(100)) => {
-                if event::poll(tokio::time::Duration::from_millis(0))? {
-                    let terminal_event = event::read()?;
-                    
-                    // Handle Ctrl+C to quit (check this FIRST before app.handle_event)
+            // Terminal events (keyboard/mouse) - HIGHEST PRIORITY
+            result = tokio::task::spawn_blocking(|| {
+                // Poll with minimal timeout for near-instant response
+                event::poll(std::time::Duration::from_millis(10))
+                    .and_then(|has_event| {
+                        if has_event {
+                            event::read().map(Some)
+                        } else {
+                            Ok(None)
+                        }
+                    })
+            }) => {
+                if let Ok(Ok(Some(terminal_event))) = result {
+                    // Handle Ctrl+C to quit
                     if let Event::Key(key) = &terminal_event {
                         if key.kind == KeyEventKind::Press {
                             if key.code == KeyCode::Char('c') 
@@ -120,7 +131,31 @@ async fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, config: 
                     if app.handle_event(terminal_event).await? {
                         break; // App requested quit
                     }
+                    
+                    // Mark for re-render after input
+                    needs_render = true;
                 }
+            }
+            
+            // WhatsApp events from service
+            Some(wa_event) = event_rx.recv() => {
+                app.handle_whatsapp_event(wa_event).await?;
+                needs_render = true;
+            }
+            
+            // Periodic sync (lowest priority)
+            _ = sync_interval.tick() => {
+                // Only sync if we're in Ready state and have a current chat
+                if let Err(e) = app.refresh_current_chat_messages().await {
+                    log::warn!("Periodic sync failed: {}", e);
+                }
+                needs_render = true;
+            }
+
+            // Background sync for chats with updates (every 2 minutes)
+            _ = background_sync_interval.tick() => {
+                app.background_sync_updated_chats();
+                needs_render = true;
             }
         }
     }

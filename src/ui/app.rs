@@ -1,10 +1,10 @@
 use anyhow::Result;
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, MouseEvent, MouseEventKind, MouseButton};
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, BorderType, List, ListItem, ListState, Paragraph},
+    text::{Line, Span, Text},
+    widgets::{Block, Borders, BorderType, List, ListItem, ListState, Paragraph, Wrap},
     Frame,
 };
 use std::collections::HashMap;
@@ -29,6 +29,12 @@ enum FocusedWidget {
     Input,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChatListView {
+    Normal,    // Show non-archived chats + "Archived Messages"
+    Archived,  // Show archived chats only
+}
+
 pub struct App {
     theme: Theme,
     client: WhatsAppClient,
@@ -42,9 +48,16 @@ pub struct App {
     
     // UI State
     focused: FocusedWidget,
+    chat_list_view: ChatListView,
     chat_list_state: ListState,
-    message_scroll: u16,  // Scroll offset for message view
+    chat_list_scroll: usize,  // Scroll offset for chat list
+    chat_list_area: Rect,  // Store chat list area for mouse click detection
+    message_view_area: Rect,  // Store message view area for mouse detection
+    input_area: Rect,  // Store input area for mouse detection
+    message_scroll: u16,  // Scroll offset for message view (0 = bottom/newest)
     input_buffer: String,
+    loading_more_messages: HashMap<String, bool>,  // Track if loading older messages for a chat
+    chats_needing_sync: std::collections::HashSet<String>,  // Track chats with new updates that need syncing
     
     // Authentication
     qr_code: Option<String>,
@@ -64,9 +77,16 @@ impl App {
             current_chat_id: None,
             messages: HashMap::new(),
             focused: FocusedWidget::ChatList,
+            chat_list_view: ChatListView::Normal,
             chat_list_state: ListState::default(),
+            chat_list_scroll: 0,
+            chat_list_area: Rect::default(),
+            message_view_area: Rect::default(),
+            input_area: Rect::default(),
             message_scroll: 0,
             input_buffer: String::new(),
+            loading_more_messages: HashMap::new(),
+            chats_needing_sync: std::collections::HashSet::new(),
             qr_code: None,
             status_message: "Connecting to WhatsApp...".to_string(),
         }
@@ -84,17 +104,18 @@ impl App {
             WhatsAppEvent::Authenticated => {
                 log::info!("Authenticated");
                 self.qr_code = None; // clear QR code immediately
-                self.status_message = "Authenticated! Loading chats...".to_string();
+                self.status_message = "Authenticated! Preparing interface...".to_string();
             }
-            
+
             WhatsAppEvent::Ready => {
                 log::info!("Ready");
+                // Switch to Ready state immediately - show main interface
                 self.state = AppState::Ready;
                 self.qr_code = None;
-                self.status_message = "Syncing chats... First sync after login can take 3-5 minutes with many contacts".to_string();
+                self.status_message = "Syncing chats... This may take a few minutes".to_string();
 
-                // Load chats in background to avoid blocking the event loop
-                let client = self.client.clone(); // WhatsAppClient is cheap to clone (Arc internal)
+                // Load chats in background - UI is already usable
+                let client = self.client.clone();
                 let event_tx = self.event_tx.clone();
 
                 tokio::spawn(async move {
@@ -106,14 +127,13 @@ impl App {
                         }
                         Err(e) => {
                             log::error!("Failed to load chats: {}", e);
-                            // Send error event to update UI
                             let error_msg = format!("Failed to load chats: {}. Try restarting the app.", e);
                             let _ = event_tx.send(WhatsAppEvent::Error(error_msg)).await;
                         }
                     }
                 });
             }
-            
+
             WhatsAppEvent::ChatsLoaded(mut chats) => {
                  // Sort chats by timestamp (most recent first)
                  chats.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
@@ -129,33 +149,71 @@ impl App {
             }
             
             WhatsAppEvent::MessageReceived(msg) => {
-                log::debug!("Received message in chat {}", msg.chat_id);
-                
-                // Add to messages
-                self.messages.entry(msg.chat_id.clone())
-                    .or_insert_with(Vec::new)
-                    .push(msg.clone());
-                
-                // Update chat's last message and timestamp
-                if let Some(chat) = self.chats.iter_mut().find(|c| c.id == msg.chat_id) {
-                    chat.last_message = Some(msg.body.clone());
-                    chat.timestamp = msg.timestamp;
-                    if !msg.from_me {
-                        chat.unread_count += 1;
-                    }
+            log::debug!("Received message in chat {}", msg.chat_id);
+
+            // Add/update message with deduplication
+            let chat_messages = self.messages.entry(msg.chat_id.clone())
+                .or_insert_with(Vec::new);
+
+            // Check if message already exists (prevents duplicates from event + sync)
+            if !chat_messages.iter().any(|m| m.id == msg.id) {
+                chat_messages.push(msg.clone());
+                // Sort by timestamp to maintain chronological order
+                chat_messages.sort_by_key(|m| m.timestamp);
+
+                // Mark this chat as needing a background sync to get full context
+                self.chats_needing_sync.insert(msg.chat_id.clone());
+            }
+
+            // Update chat's last message and timestamp
+            if let Some(chat) = self.chats.iter_mut().find(|c| c.id == msg.chat_id) {
+                chat.last_message = Some(msg.body.clone());
+                chat.timestamp = msg.timestamp;
+                if !msg.from_me {
+                    chat.unread_count += 1;
                 }
+            }
+                // Get the currently selected chat ID (if any) before re-sorting
+                // Need to account for "Archived Messages" offset (index 0) and view filtering
+                let selected_chat_id = if let Some(visual_index) = self.chat_list_state.selected() {
+                    if visual_index == 0 {
+                        // "Archived Messages" is selected, keep it selected
+                        None
+                    } else {
+                        // Get the filtered chats for current view
+                        let filtered_chats: Vec<&Chat> = match self.chat_list_view {
+                            ChatListView::Normal => self.chats.iter().filter(|c| !c.archived).collect(),
+                            ChatListView::Archived => self.chats.iter().filter(|c| c.archived).collect(),
+                        };
+
+                        // Visual index 1+ maps to filtered_chats index 0+
+                        let filtered_index = visual_index.saturating_sub(1);
+                        filtered_chats.get(filtered_index).map(|c| c.id.clone())
+                    }
+                } else {
+                    None
+                };
 
                 // Re-sort chats to bring the updated chat to the top
                 self.chats.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
 
-                // Preserve selection by finding the currently selected chat's new position
-                if let Some(current_index) = self.chat_list_state.selected() {
-                    if let Some(current_chat) = self.chats.get(current_index).map(|c| c.id.clone()) {
-                        // Find where this chat moved to after sorting
-                        if let Some(new_index) = self.chats.iter().position(|c| c.id == current_chat) {
-                            self.chat_list_state.select(Some(new_index));
-                        }
+                // Restore selection to the same chat (by ID)
+                if let Some(chat_id) = selected_chat_id {
+                    // Get filtered chats after re-sorting
+                    let filtered_chats: Vec<&Chat> = match self.chat_list_view {
+                        ChatListView::Normal => self.chats.iter().filter(|c| !c.archived).collect(),
+                        ChatListView::Archived => self.chats.iter().filter(|c| c.archived).collect(),
+                    };
+
+                    // Find the chat's new position in the filtered list
+                    if let Some(filtered_index) = filtered_chats.iter().position(|c| c.id == chat_id) {
+                        // Convert to visual index (add 1 for "Archived Messages" offset)
+                        let new_visual_index = filtered_index + 1;
+                        self.chat_list_state.select(Some(new_visual_index));
                     }
+                } else if self.chat_list_state.selected() == Some(0) {
+                    // Keep "Archived Messages" selected
+                    self.chat_list_state.select(Some(0));
                 }
             }
             
@@ -164,6 +222,45 @@ impl App {
                     *chat = updated_chat;
                 } else {
                     self.chats.push(updated_chat);
+                }
+            }
+
+            WhatsAppEvent::MessagesLoaded(chat_id, new_messages) => {
+                log::debug!("Messages loaded for chat {}: {} messages", chat_id, new_messages.len());
+                
+                // Merge with existing messages (for pagination)
+                if let Some(existing) = self.messages.get_mut(&chat_id) {
+                    let old_count = existing.len();
+                    log::info!("Merging {} new messages with {} existing messages", new_messages.len(), old_count);
+                    
+                    // Prepend new messages (older ones) and deduplicate
+                    let mut all_messages = new_messages.clone();
+                    all_messages.extend(existing.clone());
+                    
+                    // Deduplicate by message ID, keeping first occurrence
+                    let mut seen = std::collections::HashSet::new();
+                    all_messages.retain(|msg| seen.insert(msg.id.clone()));
+                    
+                    // Sort by timestamp (oldest first)
+                    all_messages.sort_by_key(|m| m.timestamp);
+                    
+                    *existing = all_messages;
+                    
+                    let new_count = existing.len() - old_count;
+                    log::info!("After merge: {} total messages ({} new)", existing.len(), new_count);
+                } else {
+                    // Initial load
+                    log::info!("Initial load of {} messages for chat {}", new_messages.len(), chat_id);
+                    self.messages.insert(chat_id.clone(), new_messages.clone());
+                }
+                
+                // Clear loading flag
+                self.loading_more_messages.insert(chat_id.clone(), false);
+                
+                // Update status message
+                if let Some(chat) = self.chats.iter().find(|c| c.id == chat_id) {
+                    let count = self.messages.get(&chat_id).map(|m| m.len()).unwrap_or(0);
+                    self.status_message = format!("{} - {} messages", chat.name, count);
                 }
             }
             
@@ -184,14 +281,18 @@ impl App {
     
     /// Handle terminal events
     pub async fn handle_event(&mut self, event: Event) -> Result<bool> {
-        if let Event::Key(key) = event {
-            if key.kind != KeyEventKind::Press {
-                return Ok(false);
+        match event {
+            Event::Key(key) => {
+                if key.kind != KeyEventKind::Press {
+                    return Ok(false);
+                }
+                self.handle_key(key).await
             }
-            return self.handle_key(key).await;
+            Event::Mouse(mouse) => {
+                self.handle_mouse(mouse).await
+            }
+            _ => Ok(false),
         }
-        
-        Ok(false)
     }
     
     async fn handle_key(&mut self, key: KeyEvent) -> Result<bool> {
@@ -233,12 +334,143 @@ impl App {
         }
     }
     
+    async fn handle_mouse(&mut self, mouse: MouseEvent) -> Result<bool> {
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                let x = mouse.column;
+                let y = mouse.row;
+
+                // Check which area was clicked (in priority order)
+                
+                // 1. Chat list area
+                if x >= self.chat_list_area.x && x < self.chat_list_area.x + self.chat_list_area.width
+                    && y >= self.chat_list_area.y && y < self.chat_list_area.y + self.chat_list_area.height
+                {
+                    // Calculate which item was clicked
+                    let relative_y = y.saturating_sub(self.chat_list_area.y + 1);
+                    let clicked_index = self.chat_list_scroll + relative_y as usize;
+
+                    // First item (index 0) is always "Archived Messages" - clicking toggles view
+                    if clicked_index == 0 {
+                        self.chat_list_view = match self.chat_list_view {
+                            ChatListView::Normal => ChatListView::Archived,
+                            ChatListView::Archived => ChatListView::Normal,
+                        };
+                        self.chat_list_scroll = 0;
+                        self.chat_list_state.select(Some(0));
+                        self.focused = FocusedWidget::ChatList;
+                        return Ok(false);
+                    }
+
+                    // Get filtered chats for the current view
+                    let filtered_chats: Vec<_> = match self.chat_list_view {
+                        ChatListView::Normal => self.chats.iter().filter(|c| !c.archived).collect(),
+                        ChatListView::Archived => self.chats.iter().filter(|c| c.archived).collect(),
+                    };
+
+                    // Calculate actual chat index (subtract 1 for "Archived Messages" offset)
+                    let actual_chat_index = clicked_index.saturating_sub(1);
+
+                    // Find the chat in the full chats list
+                    if let Some(clicked_chat) = filtered_chats.get(actual_chat_index) {
+                        let chat_id = clicked_chat.id.clone();
+
+                        // Find this chat's absolute index in self.chats
+                        if let Some(abs_index) = self.chats.iter().position(|c| c.id == chat_id) {
+                            self.chat_list_state.select(Some(clicked_index));
+                            self.focused = FocusedWidget::ChatList;
+                            self.input_buffer.clear();
+                            self.message_scroll = 0;
+                            self.load_chat_messages_background(abs_index).await?;
+                        }
+                    }
+                }
+                // 2. Message view area
+                else if x >= self.message_view_area.x && x < self.message_view_area.x + self.message_view_area.width
+                    && y >= self.message_view_area.y && y < self.message_view_area.y + self.message_view_area.height
+                {
+                    // Focus message view
+                    self.focused = FocusedWidget::MessageView;
+                }
+                // 3. Input area
+                else if x >= self.input_area.x && x < self.input_area.x + self.input_area.width
+                    && y >= self.input_area.y && y < self.input_area.y + self.input_area.height
+                {
+                    // Focus input
+                    self.focused = FocusedWidget::Input;
+                }
+            }
+            MouseEventKind::ScrollDown => {
+                // Scroll based on focused widget
+                match self.focused {
+                    FocusedWidget::ChatList => {
+                        // Scroll the chat list down (show later items)
+                        let max_scroll = self.chats.len().saturating_sub(1);
+                        self.chat_list_scroll = (self.chat_list_scroll + 1).min(max_scroll);
+                    }
+                    FocusedWidget::MessageView => {
+                        // Scroll down = show newer messages (decrease scroll toward 0)
+                        self.message_scroll = self.message_scroll.saturating_sub(3);
+                    }
+                    _ => {}
+                }
+            }
+            MouseEventKind::ScrollUp => {
+                // Scroll based on focused widget
+                match self.focused {
+                    FocusedWidget::ChatList => {
+                        // Scroll the chat list up (show earlier items)
+                        self.chat_list_scroll = self.chat_list_scroll.saturating_sub(1);
+                    }
+                    FocusedWidget::MessageView => {
+                        // Scroll up = show older messages (increase offset from bottom)
+                        if let Some(chat_id) = &self.current_chat_id {
+                            if let Some(messages) = self.messages.get(chat_id) {
+                                let num_lines = messages.len();
+                                let available_height = self.message_view_area.height.saturating_sub(2) as usize;
+                                let max_scroll = num_lines.saturating_sub(available_height);
+                                
+                                if (self.message_scroll as usize) < max_scroll {
+                                    self.message_scroll = self.message_scroll.saturating_add(3);
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+        
+        Ok(false)
+    }
+    
     fn handle_message_scroll(&mut self, key: KeyEvent) {
         match key.code {
-            KeyCode::Down => {
-                self.message_scroll = self.message_scroll.saturating_add(1);
-            }
             KeyCode::Up => {
+                // Scroll up = show older messages (increase offset from bottom)
+                if let Some(chat_id) = &self.current_chat_id {
+                    if let Some(messages) = self.messages.get(chat_id) {
+                        let num_lines = messages.len();
+                        let available_height = self.message_view_area.height.saturating_sub(2) as usize;
+                        let max_scroll = num_lines.saturating_sub(available_height);
+
+                        if (self.message_scroll as usize) < max_scroll {
+                            self.message_scroll = self.message_scroll.saturating_add(1);
+                            
+                            // Pagination: Check if we're near the top (within 5 lines of oldest message)
+                            if (self.message_scroll as usize) >= max_scroll.saturating_sub(5) {
+                                let is_loading = self.loading_more_messages.get(chat_id).copied().unwrap_or(false);
+                                if !is_loading && num_lines >= 100 {  // Only paginate if we have at least initial load (was 50)
+                                    self.load_more_messages(chat_id.clone(), num_lines);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            KeyCode::Down => {
+                // Scroll down = show newer messages (decrease offset, toward 0 = bottom)
                 self.message_scroll = self.message_scroll.saturating_sub(1);
             }
             _ => {}
@@ -260,6 +492,12 @@ impl App {
                 };
                 self.chat_list_state.select(Some(i));
                 
+                // Auto-adjust scroll to keep selection visible
+                let visible_height = self.chat_list_area.height.saturating_sub(2) as usize; // -2 for borders
+                if i >= self.chat_list_scroll + visible_height {
+                    self.chat_list_scroll = i.saturating_sub(visible_height - 1);
+                }
+                
                 // Clear input and reset scroll when changing chats
                 self.input_buffer.clear();
                 self.message_scroll = 0;
@@ -280,6 +518,11 @@ impl App {
                     None => 0,
                 };
                 self.chat_list_state.select(Some(i));
+                
+                // Auto-adjust scroll to keep selection visible
+                if i < self.chat_list_scroll {
+                    self.chat_list_scroll = i;
+                }
                 
                 // Clear input and reset scroll when changing chats
                 self.input_buffer.clear();
@@ -337,39 +580,111 @@ impl App {
         if let Some(chat) = self.chats.get(chat_index) {
             let chat_id = chat.id.clone();
             let chat_name = chat.name.clone();
-            
+
             // Set as current chat immediately
             self.current_chat_id = Some(chat_id.clone());
-            
+
             // Load messages if not cached
             if !self.messages.contains_key(&chat_id) {
                 self.status_message = format!("Loading {} messages...", chat_name);
                 log::info!("Loading messages for chat: {}", chat_name);
-                
-                match self.client.get_messages(&chat_id, 50).await {
-                    Ok(messages) => {
-                        let count = messages.len();
-                        self.messages.insert(chat_id.clone(), messages);
-                        self.status_message = format!("{} - {} messages", chat_name, count);
+
+                // Spawn non-blocking task to load messages
+                let client = self.client.clone();
+                let event_tx = self.event_tx.clone();
+
+                tokio::spawn(async move {
+                    match client.get_messages(&chat_id, 100).await {
+                        Ok(messages) => {
+                            log::info!("Fetched {} messages for chat {}", messages.len(), chat_id);
+                            if !messages.is_empty() {
+                                let oldest = messages.first().map(|m| m.timestamp).unwrap_or(0);
+                                let newest = messages.last().map(|m| m.timestamp).unwrap_or(0);
+                                log::info!("Message range: oldest={} newest={}", oldest, newest);
+                            }
+                            let _ = event_tx.send(WhatsAppEvent::MessagesLoaded(chat_id, messages)).await;
+                        }
+                        Err(e) => {
+                            log::error!("Failed to load messages: {}", e);
+                            let error_msg = format!("Failed to load messages: {}", e);
+                            let _ = event_tx.send(WhatsAppEvent::Error(error_msg)).await;
+                        }
                     }
-                    Err(e) => {
-                        log::error!("Failed to load messages: {}", e);
-                        self.status_message = format!("Error: {}", e);
-                    }
-                }
+                });
             } else {
                 // Already cached - instant!
                 let count = self.messages.get(&chat_id).map(|m| m.len()).unwrap_or(0);
                 self.status_message = format!("{} - {} messages (cached)", chat_name, count);
             }
-            
+
             // Mark as read
             if let Some(chat) = self.chats.get_mut(chat_index) {
                 chat.unread_count = 0;
             }
         }
-        
+
         Ok(())
+    }
+
+    fn load_more_messages(&mut self, chat_id: String, current_count: usize) {
+        // Mark as loading
+        self.loading_more_messages.insert(chat_id.clone(), true);
+        self.status_message = "Loading older messages...".to_string();
+        log::info!("Loading more messages for chat: {} (current: {})", chat_id, current_count);
+
+        let client = self.client.clone();
+        let event_tx = self.event_tx.clone();
+
+        tokio::spawn(async move {
+            // Request more messages - WhatsApp API will return oldest to newest
+            match client.get_messages(&chat_id, current_count + 50).await {
+                Ok(messages) => {
+                    let _ = event_tx.send(WhatsAppEvent::MessagesLoaded(chat_id, messages)).await;
+                }
+                Err(e) => {
+                    log::error!("Failed to load more messages: {}", e);
+                    let error_msg = format!("Failed to load older messages: {}", e);
+                    let _ = event_tx.send(WhatsAppEvent::Error(error_msg)).await;
+                }
+            }
+        });
+    }
+
+    /// Background sync for chats that have received updates
+    /// Only syncs chats that are marked in chats_needing_sync
+    pub fn background_sync_updated_chats(&mut self) {
+        if self.chats_needing_sync.is_empty() {
+            return; // Nothing to sync
+        }
+
+        // Take ownership of the set to avoid borrow checker issues
+        let chats_to_sync: Vec<String> = self.chats_needing_sync.drain().collect();
+
+        log::info!("Background syncing {} chats with updates", chats_to_sync.len());
+
+        for chat_id in chats_to_sync {
+            // Skip current chat if it's being synced by the main interval
+            if Some(&chat_id) == self.current_chat_id.as_ref() {
+                continue;
+            }
+
+            let client = self.client.clone();
+            let event_tx = self.event_tx.clone();
+            let chat_id_clone = chat_id.clone();
+
+            tokio::spawn(async move {
+                // Get full context (100 messages) to ensure we have everything
+                match client.get_messages(&chat_id_clone, 100).await {
+                    Ok(messages) => {
+                        log::debug!("Background sync loaded {} messages for {}", messages.len(), chat_id_clone);
+                        let _ = event_tx.send(WhatsAppEvent::MessagesLoaded(chat_id_clone, messages)).await;
+                    }
+                    Err(e) => {
+                        log::warn!("Background sync failed for {}: {}", chat_id_clone, e);
+                    }
+                }
+            });
+        }
     }
 
     /// Refresh messages for the current chat (useful for periodic sync)
@@ -377,7 +692,7 @@ impl App {
         if let Some(chat_id) = &self.current_chat_id {
             log::debug!("Refreshing messages for current chat: {}", chat_id);
 
-            match self.client.get_messages(chat_id, 50).await {
+            match self.client.get_messages(chat_id, 100).await {
                 Ok(messages) => {
                     let old_count = self.messages.get(chat_id).map(|m| m.len()).unwrap_or(0);
                     let new_count = messages.len();
@@ -400,31 +715,35 @@ impl App {
     async fn send_current_message(&mut self) -> Result<bool> {
         if let Some(chat_id) = &self.current_chat_id {
             let text = self.input_buffer.clone();
-            log::info!("Sending message to {}: {}", chat_id, text);
             
-            // Add message to UI immediately for instant feedback
-            let sent_msg = Message {
-                id: format!("temp_{}", chrono::Utc::now().timestamp()),
-                chat_id: chat_id.clone(),
-                body: text.clone(),
-                timestamp: chrono::Utc::now().timestamp(),
-                from_me: true,
-                has_media: false,
-                media_type: None,
-                sender: None,
-            };
+            if text.is_empty() {
+                return Ok(false);
+            }
             
-            self.messages.entry(chat_id.clone())
-                .or_insert_with(Vec::new)
-                .push(sent_msg);
+            // Clear input immediately for responsiveness
+            self.input_buffer.clear();
             
-            // Actually send via API
-            if let Err(e) = self.client.send_message(chat_id, &text).await {
-                log::error!("Failed to send message: {}", e);
-                self.status_message = format!("Error sending message: {}", e);
-            } else {
-                log::info!("Message sent successfully");
-                self.input_buffer.clear();
+            // Send message
+            match self.client.send_message(chat_id, &text).await {
+                Ok(_) => {
+                    log::info!("Message sent successfully");
+                    self.status_message = "Message sent".to_string();
+                    
+                    // Reset scroll to auto-scroll to the new message
+                    self.message_scroll = 0;
+                    
+                    // Refresh messages to show the sent message
+                    // This will be near-instant since the message was just sent
+                    if let Err(e) = self.refresh_current_chat_messages().await {
+                        log::warn!("Failed to refresh after send: {}", e);
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to send message: {}", e);
+                    self.status_message = format!("Failed to send: {}", e);
+                    // Put the text back in the input buffer
+                    self.input_buffer = text;
+                }
             }
         }
         
@@ -525,39 +844,139 @@ impl App {
     }
     
     fn render_chat_list(&mut self, frame: &mut Frame, area: Rect) {
-        let items: Vec<ListItem> = self.chats.iter().map(|chat| {
-            let name = &chat.name;
-            let unread = if chat.unread_count > 0 {
-                format!(" ({})", chat.unread_count)
+        // Store the area for mouse click detection
+        self.chat_list_area = area;
+
+        // Filter chats based on current view
+        let filtered_chats: Vec<&Chat> = match self.chat_list_view {
+            ChatListView::Normal => {
+                // Show non-archived chats
+                self.chats.iter()
+                    .filter(|c| !c.archived)
+                    .collect()
+            },
+            ChatListView::Archived => {
+                // Show only archived chats
+                self.chats.iter()
+                    .filter(|c| c.archived)
+                    .collect()
+            }
+        };
+
+        // Calculate total items (chats + "Archived Messages")
+        let total_items = filtered_chats.len() + 1;
+
+        // Calculate visible range based on scroll offset
+        let visible_height = area.height.saturating_sub(2) as usize; // -2 for borders
+        let max_scroll = total_items.saturating_sub(visible_height);
+
+        // Clamp scroll to valid range
+        if self.chat_list_scroll > max_scroll {
+            self.chat_list_scroll = max_scroll;
+        }
+
+        // Get visible range
+        let end_index = (self.chat_list_scroll + visible_height).min(total_items);
+
+        // Determine which item is selected in the visible window
+        let selected_in_window = if let Some(selected) = self.chat_list_state.selected() {
+            if selected >= self.chat_list_scroll && selected < end_index {
+                Some(selected - self.chat_list_scroll)
             } else {
-                String::new()
-            };
-            
-            let content = format!("{}{}", name, unread);
-            ListItem::new(Line::from(content))
-        }).collect();
-        
+                None
+            }
+        } else {
+            None
+        };
+
+        // Build items to display
+        let mut items: Vec<ListItem> = Vec::new();
+
+        for i in self.chat_list_scroll..end_index {
+            // First item is always "Archived Messages"
+            if i == 0 {
+                let is_selected = selected_in_window == Some(items.len());
+                let text_style = if is_selected {
+                    Style::default()
+                        .bg(self.theme.primary)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+
+                // Check if there are any archived chats
+                let archived_count = self.chats.iter().filter(|c| c.archived).count();
+                
+                // Change indicator based on current view
+                let content = if self.chat_list_view == ChatListView::Archived {
+                    if archived_count > 0 {
+                        format!("📂 Archived Messages ({}) - Viewing", archived_count)
+                    } else {
+                        "📂 Archived Messages - Viewing (empty)".to_string()
+                    }
+                } else {
+                    if archived_count > 0 {
+                        format!("📁 Archived Messages ({})", archived_count)
+                    } else {
+                        "📁 Archived Messages".to_string()
+                    }
+                };
+
+                let line = Line::from(Span::styled(content, text_style));
+                items.push(ListItem::new(line));
+            } else {
+                // Regular chat item
+                let chat_idx = i - 1;  // Subtract 1 for "Archived Messages" offset
+                
+                if let Some(chat) = filtered_chats.get(chat_idx) {
+                    let name = &chat.name;
+                    let unread = if chat.unread_count > 0 {
+                        format!(" ({})", chat.unread_count)
+                    } else {
+                        String::new()
+                    };
+
+                    let is_selected = selected_in_window == Some(items.len());
+                    let text_style = if is_selected {
+                        Style::default()
+                            .bg(self.theme.primary)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                    };
+
+                    let content = format!("{}{}", name, unread);
+                    let line = Line::from(Span::styled(content, text_style));
+                    items.push(ListItem::new(line));
+                }
+            }
+        }
+
         let border_color = if self.focused == FocusedWidget::ChatList {
             self.theme.border_focused
         } else {
             self.theme.border
         };
-        
+
+        // Always use "Chats" title
         let list = List::new(items)
             .block(Block::default()
                 .title(" Chats ")
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
                 .border_style(Style::default().fg(border_color)))
-            .highlight_style(Style::default()
-                .bg(self.theme.primary)
-                .add_modifier(Modifier::BOLD))
             .highlight_symbol("► ");
-        
-        frame.render_stateful_widget(list, area, &mut self.chat_list_state);
+
+        // Use a state with the selection
+        let mut display_state = ListState::default();
+        display_state.select(selected_in_window);
+
+        frame.render_stateful_widget(list, area, &mut display_state);
     }
     
-    fn render_messages(&self, frame: &mut Frame, area: Rect) {
+    fn render_messages(&mut self, frame: &mut Frame, area: Rect) {
+        // Store area for mouse detection
+        self.message_view_area = area;
         let title = if let Some(chat_id) = &self.current_chat_id {
             self.chats.iter()
                 .find(|c| c.id == *chat_id)
@@ -568,56 +987,63 @@ impl App {
         };
         
         let messages_text = if let Some(chat_id) = &self.current_chat_id {
-            if let Some(messages) = self.messages.get(chat_id) {
-                let lines: Vec<Line> = messages.iter().map(|msg| {
-                    let sender = if msg.from_me {
-                        Span::styled("Me", Style::default().fg(self.theme.me))
-                    } else {
-                        Span::styled(
-                            msg.sender.as_deref().unwrap_or("User"),
-                            Style::default().fg(self.theme.other)
-                        )
-                    };
-                    
-                    let time = chrono::DateTime::from_timestamp(msg.timestamp, 0)
-                        .map(|dt| dt.format("%H:%M").to_string())
-                        .unwrap_or_default();
-                    
-                    let body = if msg.has_media {
-                        format!("[Media: {}]", msg.media_type.as_deref().unwrap_or("unknown"))
-                    } else {
-                        msg.body.clone()
-                    };
-                    
-                    Line::from(vec![
-                        Span::styled(time, Style::default().fg(self.theme.system)),
-                        Span::raw(" "),
-                        sender,
-                        Span::raw(": "),
-                        Span::raw(body),
-                    ])
-                }).collect();
-                
-                lines
-            } else {
-                vec![Line::from("Loading messages...")]
+        if let Some(messages) = self.messages.get(chat_id) {
+            let mut text = Text::default();
+
+            for msg in messages {
+                let sender = if msg.from_me {
+                    Span::styled("Me", Style::default().fg(self.theme.me))
+                } else {
+                    Span::styled(
+                        msg.sender.as_deref().unwrap_or("User"),
+                        Style::default().fg(self.theme.other)
+                    )
+                };
+
+                let time = chrono::DateTime::from_timestamp(msg.timestamp, 0)
+                    .map(|dt| dt.with_timezone(&chrono::Local).format("%H:%M").to_string())
+                    .unwrap_or_default();
+
+                let body = if msg.has_media {
+                    format!("[Media: {}]", msg.media_type.as_deref().unwrap_or("unknown"))
+                } else {
+                    msg.body.clone()
+                };
+
+                // Create a single line with all components - Paragraph will wrap it
+                let message_line = Line::from(vec![
+                    Span::styled(time, Style::default().fg(self.theme.system)),
+                    Span::raw(" "),
+                    sender,
+                    Span::raw(": "),
+                    Span::raw(body),
+                ]);
+
+                text.lines.push(message_line);
             }
+
+            text
         } else {
-            vec![Line::from("Select a chat to view messages")]
-        };
-        
-        // Calculate scroll offset
-        let num_lines = messages_text.len();
-        let available_height = area.height.saturating_sub(2) as usize;
-        
-        // Use manual scroll if > 0, otherwise auto-scroll to bottom
-        let scroll_offset = if self.message_scroll > 0 {
-            self.message_scroll
-        } else if num_lines > available_height {
-            (num_lines - available_height) as u16
-        } else {
-            0
-        };
+            Text::from("Loading messages...")
+        }
+    } else {
+        Text::from("Select a chat to view messages")
+    };
+    
+    // Calculate scroll offset
+    // Inverted: scroll=0 means "at bottom" (newest messages)
+    // Increasing message_scroll means scrolling UP (shows older messages)
+    let num_lines = messages_text.lines.len();
+    let available_height = area.height.saturating_sub(2) as usize;
+    
+    // Calculate scroll offset from bottom
+    let scroll_offset = if num_lines > available_height {
+        let max_scroll = (num_lines - available_height) as u16;
+        // Invert: subtract message_scroll from max to scroll from bottom
+        max_scroll.saturating_sub(self.message_scroll)
+    } else {
+        0  // Not enough messages to scroll
+    };
         
         // Border color based on focus
         let border_color = if self.focused == FocusedWidget::MessageView {
@@ -632,12 +1058,15 @@ impl App {
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
                 .border_style(Style::default().fg(border_color)))
+            .wrap(Wrap { trim: false })
             .scroll((scroll_offset, 0));
         
         frame.render_widget(paragraph, area);
     }
     
-    fn render_input(&self, frame: &mut Frame, area: Rect) {
+    fn render_input(&mut self, frame: &mut Frame, area: Rect) {
+        // Store area for mouse detection
+        self.input_area = area;
         let border_color = if self.focused == FocusedWidget::Input {
             self.theme.border_focused
         } else {
