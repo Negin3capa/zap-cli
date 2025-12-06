@@ -27,6 +27,9 @@ pub enum WhatsAppEvent {
     ChatsLoaded(Vec<Chat>),
 
     #[serde(skip)]
+    MessagesLoaded(String, Vec<Message>),  // chat_id, messages
+
+    #[serde(skip)]
     Error(String),
 }
 

@@ -170,6 +170,19 @@ impl App {
                     self.chats.push(updated_chat);
                 }
             }
+
+            WhatsAppEvent::MessagesLoaded(chat_id, messages) => {
+                log::debug!("Messages loaded for chat {}: {} messages", chat_id, messages.len());
+                
+                // Update messages cache
+                self.messages.insert(chat_id.clone(), messages.clone());
+                
+                // Update status message
+                if let Some(chat) = self.chats.iter().find(|c| c.id == chat_id) {
+                    let count = messages.len();
+                    self.status_message = format!("{} - {} messages", chat.name, count);
+                }
+            }
             
             WhatsAppEvent::Disconnected => {
                 log::warn!("Disconnected from WhatsApp");
@@ -400,38 +413,43 @@ impl App {
         if let Some(chat) = self.chats.get(chat_index) {
             let chat_id = chat.id.clone();
             let chat_name = chat.name.clone();
-            
+
             // Set as current chat immediately
             self.current_chat_id = Some(chat_id.clone());
-            
+
             // Load messages if not cached
             if !self.messages.contains_key(&chat_id) {
                 self.status_message = format!("Loading {} messages...", chat_name);
                 log::info!("Loading messages for chat: {}", chat_name);
-                
-                match self.client.get_messages(&chat_id, 50).await {
-                    Ok(messages) => {
-                        let count = messages.len();
-                        self.messages.insert(chat_id.clone(), messages);
-                        self.status_message = format!("{} - {} messages", chat_name, count);
+
+                // Spawn non-blocking task to load messages
+                let client = self.client.clone();
+                let event_tx = self.event_tx.clone();
+
+                tokio::spawn(async move {
+                    match client.get_messages(&chat_id, 50).await {
+                        Ok(messages) => {
+                            let _ = event_tx.send(WhatsAppEvent::MessagesLoaded(chat_id, messages)).await;
+                        }
+                        Err(e) => {
+                            log::error!("Failed to load messages: {}", e);
+                            let error_msg = format!("Failed to load messages: {}", e);
+                            let _ = event_tx.send(WhatsAppEvent::Error(error_msg)).await;
+                        }
                     }
-                    Err(e) => {
-                        log::error!("Failed to load messages: {}", e);
-                        self.status_message = format!("Error: {}", e);
-                    }
-                }
+                });
             } else {
                 // Already cached - instant!
                 let count = self.messages.get(&chat_id).map(|m| m.len()).unwrap_or(0);
                 self.status_message = format!("{} - {} messages (cached)", chat_name, count);
             }
-            
+
             // Mark as read
             if let Some(chat) = self.chats.get_mut(chat_index) {
                 chat.unread_count = 0;
             }
         }
-        
+
         Ok(())
     }
 
