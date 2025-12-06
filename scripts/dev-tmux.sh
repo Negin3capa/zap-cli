@@ -27,6 +27,12 @@ fi
 # Kill existing session if it exists
 tmux kill-session -t $SESSION_NAME 2>/dev/null
 
+# Clean up port 8080 (kill any zombie node processes)
+if lsof -ti:8080 >/dev/null; then
+    echo "🧹 Cleaning up port 8080..."
+    lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+fi
+
 echo "✨ Creating tmux session: $SESSION_NAME"
 echo ""
 echo "Layout:"

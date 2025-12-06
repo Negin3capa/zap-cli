@@ -24,6 +24,12 @@ else
     USE_NODEMON=true
 fi
 
+# Clean up port 8080 if needed
+if lsof -ti:8080 >/dev/null; then
+    echo "🧹 Cleaning up port 8080 (killing old process)..."
+    lsof -ti:8080 | xargs kill -9 2>/dev/null || true
+fi
+
 # Start WhatsApp service in background
 echo "🚀 Starting WhatsApp service..."
 cd whatsapp-service
