@@ -96,17 +96,18 @@ impl App {
             WhatsAppEvent::Authenticated => {
                 log::info!("Authenticated");
                 self.qr_code = None; // clear QR code immediately
-                self.status_message = "Authenticated! Loading chats...".to_string();
+                self.status_message = "Authenticated! Preparing interface...".to_string();
             }
-            
+
             WhatsAppEvent::Ready => {
                 log::info!("Ready");
+                // Switch to Ready state immediately - show main interface
                 self.state = AppState::Ready;
                 self.qr_code = None;
-                self.status_message = "Syncing chats... First sync after login can take 3-5 minutes with many contacts".to_string();
+                self.status_message = "Syncing chats... This may take a few minutes".to_string();
 
-                // Load chats in background to avoid blocking the event loop
-                let client = self.client.clone(); // WhatsAppClient is cheap to clone (Arc internal)
+                // Load chats in background - UI is already usable
+                let client = self.client.clone();
                 let event_tx = self.event_tx.clone();
 
                 tokio::spawn(async move {
@@ -118,14 +119,13 @@ impl App {
                         }
                         Err(e) => {
                             log::error!("Failed to load chats: {}", e);
-                            // Send error event to update UI
                             let error_msg = format!("Failed to load chats: {}. Try restarting the app.", e);
                             let _ = event_tx.send(WhatsAppEvent::Error(error_msg)).await;
                         }
                     }
                 });
             }
-            
+
             WhatsAppEvent::ChatsLoaded(mut chats) => {
                  // Sort chats by timestamp (most recent first)
                  chats.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
