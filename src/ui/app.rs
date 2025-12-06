@@ -586,31 +586,35 @@ impl App {
     async fn send_current_message(&mut self) -> Result<bool> {
         if let Some(chat_id) = &self.current_chat_id {
             let text = self.input_buffer.clone();
-            log::info!("Sending message to {}: {}", chat_id, text);
             
-            // Add message to UI immediately for instant feedback
-            let sent_msg = Message {
-                id: format!("temp_{}", chrono::Utc::now().timestamp()),
-                chat_id: chat_id.clone(),
-                body: text.clone(),
-                timestamp: chrono::Utc::now().timestamp(),
-                from_me: true,
-                has_media: false,
-                media_type: None,
-                sender: None,
-            };
+            if text.is_empty() {
+                return Ok(false);
+            }
             
-            self.messages.entry(chat_id.clone())
-                .or_insert_with(Vec::new)
-                .push(sent_msg);
+            // Clear input immediately for responsiveness
+            self.input_buffer.clear();
             
-            // Actually send via API
-            if let Err(e) = self.client.send_message(chat_id, &text).await {
-                log::error!("Failed to send message: {}", e);
-                self.status_message = format!("Error sending message: {}", e);
-            } else {
-                log::info!("Message sent successfully");
-                self.input_buffer.clear();
+            // Send message
+            match self.client.send_message(chat_id, &text).await {
+                Ok(_) => {
+                    log::info!("Message sent successfully");
+                    self.status_message = "Message sent".to_string();
+                    
+                    // Reset scroll to auto-scroll to the new message
+                    self.message_scroll = 0;
+                    
+                    // Refresh messages to show the sent message
+                    // This will be near-instant since the message was just sent
+                    if let Err(e) = self.refresh_current_chat_messages().await {
+                        log::warn!("Failed to refresh after send: {}", e);
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to send message: {}", e);
+                    self.status_message = format!("Failed to send: {}", e);
+                    // Put the text back in the input buffer
+                    self.input_buffer = text;
+                }
             }
         }
         
