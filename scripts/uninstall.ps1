@@ -85,3 +85,34 @@ if (Test-Path $configDir) {
 Write-Host ""
 Write-Success "🎉 Uninstall complete!"
 Write-Host ""
+
+# Check if we are in the source repo
+$scriptPath = $MyInvocation.MyCommand.Path
+$parentDir = Split-Path $scriptPath -Parent
+$repoDir = Split-Path $parentDir -Parent
+
+if (Test-Path "$repoDir\.git") {
+    Write-Host ""
+    Write-Warning-Custom "It seems you are running this from the cloned repository ($repoDir)"
+    $removeRepo = Read-Host "Remove this source repository as well? [y/N]"
+
+    if ($removeRepo -eq 'y' -or $removeRepo -eq 'Y') {
+        Write-Info "Removing source repository..."
+
+        # Change to parent directory to allow deletion
+        Set-Location (Split-Path $repoDir -Parent)
+
+        # Wait a moment to ensure no file locks
+        Start-Sleep -Milliseconds 500
+
+        try {
+            Remove-Item -Recurse -Force $repoDir -ErrorAction Stop
+            Write-Success "Removed source repository"
+        } catch {
+            Write-Error-Custom "Failed to remove source repository: $_"
+            Write-Host "You may need to close other programs using this folder or remove it manually." -ForegroundColor Yellow
+        }
+    } else {
+        Write-Info "Keeping source repository"
+    }
+}

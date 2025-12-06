@@ -83,3 +83,36 @@ fi
 echo ""
 echo -e "${GREEN}🎉 Uninstall complete!${NC}"
 echo ""
+
+# Check if we are in the source repo
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
+
+if [ -d "$REPO_DIR/.git" ] && [ -f "$REPO_DIR/Cargo.toml" ]; then
+    echo -e "${YELLOW}⚠️  It seems you are running this from the cloned repository ($REPO_DIR).${NC}"
+    read -p "Remove this source repository as well? [y/N]: " -n 1 -r
+    echo
+
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${BLUE}Removing source repository...${NC}"
+
+        # Create a self-destruct script
+        CLEANUP_SCRIPT=$(mktemp)
+        cat <<EOF > "$CLEANUP_SCRIPT"
+#!/bin/bash
+sleep 1
+echo -e "${BLUE}Deleting $REPO_DIR...${NC}"
+rm -rf "$REPO_DIR"
+echo -e "${GREEN}✅ Removed source repository${NC}"
+echo -e "${GREEN}👋 Cleanup finished!${NC}"
+rm "\$0"
+EOF
+        chmod +x "$CLEANUP_SCRIPT"
+
+        # Run in background via nohup
+        nohup "$CLEANUP_SCRIPT" >/dev/null 2>&1 &
+        exit 0
+    else
+        echo -e "${YELLOW}ℹ️  Keeping source repository${NC}"
+    fi
+fi

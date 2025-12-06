@@ -46,10 +46,10 @@ if [ -d "$INSTALL_DIR" ]; then
     echo -e "${YELLOW}⚠️  The installation directory contains:${NC}"
     [ -d "$INSTALL_DIR/.wwebjs_auth" ] && echo "  - WhatsApp authentication data (you'd need to re-scan QR code)"
     echo ""
-    
+
     read -p "Remove installation directory? [y/N]: " -n 1 -r
     echo
-    
+
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         echo -e "${BLUE}Removing installation directory...${NC}"
         rm -rf "$INSTALL_DIR"
@@ -64,7 +64,7 @@ if [ -d "$CONFIG_DIR" ]; then
     echo ""
     read -p "Remove configuration directory ($CONFIG_DIR)? [y/N]: " -n 1 -r
     echo
-    
+
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         echo -e "${BLUE}Removing config directory...${NC}"
         rm -rf "$CONFIG_DIR"
@@ -77,3 +77,36 @@ fi
 echo ""
 echo -e "${GREEN}🎉 Uninstall complete!${NC}"
 echo ""
+
+# Check if we are in the source repo
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_DIR="$(dirname "$SCRIPT_DIR")"
+
+if [ -d "$REPO_DIR/.git" ] && [ -f "$REPO_DIR/Cargo.toml" ]; then
+    echo -e "${YELLOW}⚠️  It seems you are running this from the cloned repository ($REPO_DIR).${NC}"
+    read -p "Remove this source repository as well? [y/N]: " -n 1 -r
+    echo
+
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        echo -e "${BLUE}Removing source repository...${NC}"
+
+        # Create a self-destruct script since we can't delete the script while running it easily
+        CLEANUP_SCRIPT=$(mktemp)
+        cat <<EOF > "$CLEANUP_SCRIPT"
+#!/bin/bash
+sleep 1
+echo -e "${BLUE}Deleting $REPO_DIR...${NC}"
+rm -rf "$REPO_DIR"
+echo -e "${GREEN}✅ Removed source repository${NC}"
+echo -e "${GREEN}👋 Cleanup finished!${NC}"
+rm "\$0"
+EOF
+        chmod +x "$CLEANUP_SCRIPT"
+
+        # Run in background via nohup to survive shell exit
+        nohup "$CLEANUP_SCRIPT" >/dev/null 2>&1 &
+        exit 0
+    else
+        echo -e "${YELLOW}ℹ️  Keeping source repository${NC}"
+    fi
+fi
